@@ -1,6 +1,15 @@
 import os
+# Configure CPU threading limits for containerized cloud deployment (Render, Docker)
+# Prevents severe CFS quota CPU throttling and 30-second Gunicorn worker timeouts
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
 import io
 import re
+import gc
 import time
 import logging
 from pathlib import Path
@@ -16,6 +25,9 @@ from PIL import Image
 import numpy as np
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
+
+# Restrict PyTorch CPU execution threads to avoid multi-threaded contention on throttled CPUs
+torch.set_num_threads(min(2, os.cpu_count() or 1))
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -112,11 +124,12 @@ class DualViewEfficientNetB0(nn.Module):
         return torch.flatten(x, 1)
 
     def forward(self, img_top, img_bottom=None):
-        if img_bottom is None:
-            img_bottom = img_top  # Siamese single-view fallback from author's training code
-
-        feat_top = self.extract_features(img_top)        # [B, 1280]
-        feat_bottom = self.extract_features(img_bottom)  # [B, 1280]
+        if img_bottom is None or img_bottom is img_top:
+            feat_top = self.extract_features(img_top)        # [B, 1280]
+            feat_bottom = feat_top  # Siamese single-view: eliminate redundant second extraction (2x speedup)
+        else:
+            feat_top = self.extract_features(img_top)        # [B, 1280]
+            feat_bottom = self.extract_features(img_bottom)  # [B, 1280]
 
         # Feature Fusion
         fused = torch.cat([feat_top, feat_bottom], dim=1)  # [B, 2560]
@@ -160,6 +173,15 @@ def init_model():
 
         net.to(device)
         net.eval()
+        # Freeze weights to save memory and avoid any gradient autograd tracking
+        for p in net.parameters():
+            p.requires_grad = False
+
+        # Pre-warm model with dummy inference so the very first request has zero kernel/memory delay
+        dummy = torch.zeros(1, 3, IMG_SIZE, IMG_SIZE, device=device)
+        with torch.inference_mode():
+            _ = net(dummy, dummy)
+
         model = net
         model_load_status = {
             "loaded": True,
@@ -171,7 +193,7 @@ def init_model():
             "total_parameters": sum(p.numel() for p in net.parameters()),
             "input_resolution": f"{IMG_SIZE}x{IMG_SIZE} RGB"
         }
-        logger.info(f"Model ready on device: {device} ({model_load_status.get('device_name')})")
+        logger.info(f"Model ready and pre-warmed on device: {device} ({model_load_status.get('device_name')})")
     except Exception as e:
         logger.error(f"Failed to load model: {e}", exc_info=True)
         model_load_status = {"loaded": False, "error": str(e), "checkpoint": str(MODEL_PATH)}
@@ -184,20 +206,20 @@ init_model()
 # 3. HELPER UTILITIES
 # ==============================================================================
 
-def verify_paddy_leaf_image(file_bytes: bytes) -> Tuple[bool, str, Dict[str, Any]]:
+def decode_and_validate_leaf_image(
+    file_bytes: bytes,
+    max_dimension: int = 1024
+) -> Tuple[bool, str, Dict[str, Any], Optional[Image.Image], Optional[torch.Tensor]]:
     """
-    Validates whether uploaded image bytes contain an authentic paddy leaf specimen.
-    Performs multi-layer verification:
-    1. Integrity check: file existence, byte decoding, format, minimum resolution (>=32x32).
-    2. Blank / Monochrome / Random noise detection.
-    3. Foliar botanical color segmentation (chlorophyll vegetative tissue, chlorotic tissue, foliar lesions).
-    4. Botanical vegetative dominance and center leaf subject verification.
+    Decodes, validates, and preprocesses a paddy leaf image in a single pass.
+    Prevents redundant decoding, caps peak memory for large smartphone photos,
+    and returns both the normalized evaluation tensor and the resized PIL Image.
     
     Returns:
-        (is_valid: bool, user_message: str, details: dict)
+        (is_valid: bool, user_message: str, details: dict, pil_image: Image, tensor: Tensor)
     """
     if not file_bytes or len(file_bytes) == 0:
-        return False, "Invalid image: File is empty (0 bytes). Please upload a paddy leaf image for disease detection.", {"error_type": "empty_file"}
+        return False, "Invalid image: File is empty (0 bytes). Please upload a paddy leaf image for disease detection.", {"error_type": "empty_file"}, None, None
 
     try:
         im = Image.open(io.BytesIO(file_bytes))
@@ -205,16 +227,20 @@ def verify_paddy_leaf_image(file_bytes: bytes) -> Tuple[bool, str, Dict[str, Any
         im = Image.open(io.BytesIO(file_bytes)).convert("RGB")
     except Exception as e:
         logger.warning(f"Image decode failed: {e}")
-        return False, "Corrupted or invalid image: The uploaded file cannot be processed as an image. Please upload a valid image file (JPG, PNG, WEBP).", {"error_type": "corrupted_image", "raw_error": str(e)}
+        return False, "Corrupted or invalid image: The uploaded file cannot be processed as an image. Please upload a valid image file (JPG, PNG, WEBP).", {"error_type": "corrupted_image", "raw_error": str(e)}, None, None
 
     w, h = im.size
     if w < 32 or h < 32:
-        return False, "Invalid image: Image resolution is too small (minimum 32x32 pixels required). Please upload a clearer paddy leaf image.", {"error_type": "too_small", "width": w, "height": h}
+        return False, "Invalid image: Image resolution is too small (minimum 32x32 pixels required). Please upload a clearer paddy leaf image.", {"error_type": "too_small", "width": w, "height": h}, None, None
 
     if max(w, h) / max(min(w, h), 1) > 25.0:
-        return False, "Invalid image: Degenerate aspect ratio. Please upload a standard photograph of a paddy leaf.", {"error_type": "extreme_aspect_ratio"}
+        return False, "Invalid image: Degenerate aspect ratio. Please upload a standard photograph of a paddy leaf.", {"error_type": "extreme_aspect_ratio"}, None, None
 
-    # Resize to standard evaluation resolution (224x224) for consistent, high-speed metric calculation
+    # Downsample high-res phone camera photos (e.g. 4000x3000) to max 1024 to stay within Render 512MB RAM
+    if max(w, h) > max_dimension:
+        im.thumbnail((max_dimension, max_dimension), Image.Resampling.BILINEAR)
+
+    # Standard model evaluation resolution (256x256)
     im_scaled = im.resize((IMG_SIZE, IMG_SIZE), Image.Resampling.BILINEAR)
     arr = np.array(im_scaled, dtype=np.float32)
     r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
@@ -227,13 +253,13 @@ def verify_paddy_leaf_image(file_bytes: bytes) -> Tuple[bool, str, Dict[str, Any
     std_b = float(b.std())
 
     if std_gray < 5.0 or (std_r < 3.0 and std_g < 3.0 and std_b < 3.0):
-        return False, "Invalid image: Please upload a paddy leaf image for disease detection.", {"error_type": "monochrome", "std_gray": std_gray}
+        return False, "Invalid image: Please upload a paddy leaf image for disease detection.", {"error_type": "monochrome", "std_gray": std_gray}, None, None
 
     if float(gray.mean()) > 252.0 and std_gray < 8.0:
-        return False, "Invalid image: Please upload a paddy leaf image for disease detection.", {"error_type": "blank_white"}
+        return False, "Invalid image: Please upload a paddy leaf image for disease detection.", {"error_type": "blank_white"}, None, None
 
     if float(gray.mean()) < 5.0 and std_gray < 8.0:
-        return False, "Invalid image: Please upload a paddy leaf image for disease detection.", {"error_type": "blank_black"}
+        return False, "Invalid image: Please upload a paddy leaf image for disease detection.", {"error_type": "blank_black"}, None, None
 
     # Layer 2: Random Noise / Decorrelated Pixel Detection
     dy = np.abs(gray[1:, :] - gray[:-1, :])
@@ -244,7 +270,7 @@ def verify_paddy_leaf_image(file_bytes: bytes) -> Tuple[bool, str, Dict[str, Any
     spatial_corr = float(corr_matrix[0, 1]) if corr_matrix.shape == (2, 2) and not np.isnan(corr_matrix[0, 1]) else 0.0
 
     if mean_grad > 35.0 or spatial_corr < 0.60:
-        return False, "Invalid image: Please upload a paddy leaf image for disease detection.", {"error_type": "noise_or_uncorrelated", "spatial_corr": spatial_corr, "mean_grad": mean_grad}
+        return False, "Invalid image: Please upload a paddy leaf image for disease detection.", {"error_type": "noise_or_uncorrelated", "spatial_corr": spatial_corr, "mean_grad": mean_grad}, None, None
 
     # Layer 3: Botanical Foliar Feature Analysis (HSV & Vegetative Chromaticity)
     im_hsv = np.array(im_scaled.convert("HSV"), dtype=np.float32)
@@ -282,38 +308,36 @@ def verify_paddy_leaf_image(file_bytes: bytes) -> Tuple[bool, str, Dict[str, Any
     total_foliar_ratio = float(total_foliar.mean())
 
     # Decision 1: Minimum foliar / vegetative presence
-    # Slender paddy leaf blades in 224x224 typically occupy 2.5% to 25% of image area
     if veg_ratio < 0.02 and total_foliar_ratio < 0.025:
         return False, "Invalid image: Please upload a paddy leaf image for disease detection.", {
             "error_type": "low_vegetation",
             "veg_ratio": round(veg_ratio * 100, 1),
             "green_ratio": round(green_ratio * 100, 1),
             "total_foliar": round(total_foliar_ratio * 100, 1)
-        }
+        }, None, None
 
-    # Decision 2: Lesion without foliage (e.g. human skin, leather, wood, brown fur)
+    # Decision 2: Lesion without foliage
     if lesion_ratio > 0.35 and green_ratio < 0.03:
         return False, "Invalid image: Please upload a paddy leaf image for disease detection.", {
             "error_type": "lesion_without_foliage",
             "lesion_ratio": round(lesion_ratio * 100, 1),
             "green_ratio": round(green_ratio * 100, 1)
-        }
+        }, None, None
 
-    # Decision 3: Dominance of non-plant colors (bright sky, blue ocean, red vehicle/clothing)
-    # Bright blue objects / sky (val > 100, b > 90) without foliar tissue
+    # Decision 3: Dominance of non-plant colors
     bright_blue = (b > g * 1.25) & (b > r * 1.25) & (sat > 40) & (val > 100)
     if float(bright_blue.mean()) > 0.30 and total_foliar_ratio < 0.03:
         return False, "Invalid image: Please upload a paddy leaf image for disease detection.", {
             "error_type": "blue_dominant",
             "blue_ratio": round(float(bright_blue.mean()) * 100, 1)
-        }
+        }, None, None
 
     bright_red = (r > g * 1.30) & (r > b * 1.30) & (sat > 40) & (val > 60)
     if float(bright_red.mean()) > 0.25 and green_ratio < 0.03:
         return False, "Invalid image: Please upload a paddy leaf image for disease detection.", {
             "error_type": "red_dominant",
             "red_ratio": round(float(bright_red.mean()) * 100, 1)
-        }
+        }, None, None
 
     # Decision 4: Foliar pixel vegetative chlorophyll / chromaticity check
     foliar_exg = (2 * g - r - b)[green_foliage]
@@ -321,7 +345,7 @@ def verify_paddy_leaf_image(file_bytes: bytes) -> Tuple[bool, str, Dict[str, Any
         return False, "Invalid image: Please upload a paddy leaf image for disease detection.", {
             "error_type": "low_foliar_exg",
             "exg_mean": round(float(foliar_exg.mean()), 1)
-        }
+        }, None, None
 
     # Decision 5: Paddy Leaf subject presence (center or central band)
     center_foliar = total_foliar[40:184, 40:184]
@@ -329,15 +353,29 @@ def verify_paddy_leaf_image(file_bytes: bytes) -> Tuple[bool, str, Dict[str, Any
         return False, "Invalid image: Please upload a paddy leaf image for disease detection.", {
             "error_type": "center_not_foliar",
             "center_foliar": round(float(center_foliar.mean()) * 100, 1)
-        }
+        }, None, None
 
-    return True, "Valid paddy leaf image.", {
+    # Convert directly from im_scaled to PyTorch tensor in memory
+    tensor = eval_transform(im_scaled).unsqueeze(0)
+
+    val_details = {
         "veg_ratio": round(veg_ratio * 100, 1),
         "green_ratio": round(green_ratio * 100, 1),
         "lesion_ratio": round(lesion_ratio * 100, 1),
         "center_foliar": round(float(center_foliar.mean()) * 100, 1),
         "exg_mean": round(float(foliar_exg.mean()), 1) if len(foliar_exg) > 0 else 0.0
     }
+
+    return True, "Valid paddy leaf image.", val_details, im_scaled, tensor
+
+
+def verify_paddy_leaf_image(file_bytes: bytes) -> Tuple[bool, str, Dict[str, Any]]:
+    """
+    Validates whether uploaded image bytes contain an authentic paddy leaf specimen.
+    Preserves exact legacy return signature (is_valid, user_message, details).
+    """
+    is_valid, msg, details, _, _ = decode_and_validate_leaf_image(file_bytes)
+    return is_valid, msg, details
 
 
 def load_and_preprocess_image(file_bytes: bytes) -> torch.Tensor:
@@ -362,7 +400,11 @@ def extract_botanical_signals(image_pil: Image.Image) -> Tuple[float, float]:
     2. brown_ratio: Proportion of leaf tissue displaying discrete dark reddish-brown necrotic spots
        characteristic of Brown Spot (Bipolaris oryzae).
     """
-    im_scaled = image_pil.resize((IMG_SIZE, IMG_SIZE), Image.Resampling.BILINEAR)
+    if image_pil.size == (IMG_SIZE, IMG_SIZE):
+        im_scaled = image_pil
+    else:
+        im_scaled = image_pil.resize((IMG_SIZE, IMG_SIZE), Image.Resampling.BILINEAR)
+
     arr = np.array(im_scaled, dtype=np.float32)
     r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
     im_hsv = np.array(im_scaled.convert("HSV"), dtype=np.float32)
@@ -457,10 +499,9 @@ def run_inference(
             logits_tensor = 0.80 * logits_fwd + 0.20 * logits_rev
         else:
             # Single-View: Siamese feature extraction with horizontal flip TTA
-            out1 = model(tensor_top, tensor_bottom)
+            out1 = model(tensor_top, tensor_top)
             t_top_flip = torch.flip(tensor_top, dims=[3])
-            t_bot_flip = torch.flip(tensor_bottom, dims=[3])
-            out2 = model(t_top_flip, t_bot_flip)
+            out2 = model(t_top_flip, t_top_flip)
             logits_tensor = (out1 + out2) / 2.0
 
         logits = logits_tensor[0].cpu().numpy()
@@ -710,8 +751,8 @@ def predict_front_view():
     try:
         file_bytes = file.read()
 
-        # Step 1: Verify whether the image contains a valid paddy leaf
-        is_valid, val_msg, val_details = verify_paddy_leaf_image(file_bytes)
+        # Step 1 & 2: Fast single-pass verification, decoding, and tensor conversion
+        is_valid, val_msg, val_details, pil_top, tensor_top = decode_and_validate_leaf_image(file_bytes)
         if not is_valid:
             logger.warning(f"Front-view image verification rejected for '{filename}': {val_msg} ({val_details})")
             return jsonify({
@@ -722,8 +763,6 @@ def predict_front_view():
                 "validation_details": val_details
             }), 400
 
-        # Step 2: Valid paddy leaf -> proceed with feature extraction and disease diagnosis
-        tensor_top, pil_top = load_image_and_tensor(file_bytes)
         view_type = detect_leaf_view(filename)
         # Siamese single-view evaluation with TTA and foliar uncertainty calibration
         inf = run_inference(tensor_top, tensor_bottom=None, image_top=pil_top, view_type=view_type)
@@ -792,7 +831,7 @@ def predict_dual_view():
         back_bytes = back_file.read()
 
         # Step 1: Verify whether front-view image is an authentic paddy leaf
-        is_v_f, msg_f, details_f = verify_paddy_leaf_image(front_bytes)
+        is_v_f, msg_f, details_f, pil_top, tensor_top = decode_and_validate_leaf_image(front_bytes)
         if not is_v_f:
             logger.warning(f"Dual-view front image verification rejected for '{front_file.filename}': {msg_f}")
             display_msg = "Invalid image (Front View): Please upload a paddy leaf image for disease detection." if "paddy leaf" in msg_f else f"Front View: {msg_f}"
@@ -807,7 +846,7 @@ def predict_dual_view():
             }), 400
 
         # Step 2: Verify whether back-view image is an authentic paddy leaf
-        is_v_b, msg_b, details_b = verify_paddy_leaf_image(back_bytes)
+        is_v_b, msg_b, details_b, pil_bottom, tensor_bottom = decode_and_validate_leaf_image(back_bytes)
         if not is_v_b:
             logger.warning(f"Dual-view back image verification rejected for '{back_file.filename}': {msg_b}")
             display_msg = "Invalid image (Back View): Please upload a paddy leaf image for disease detection." if "paddy leaf" in msg_b else f"Back View: {msg_b}"
@@ -820,10 +859,6 @@ def predict_dual_view():
                 "back_filename": back_file.filename,
                 "validation_details": details_b
             }), 400
-
-        # Step 3: Both views verified -> execute full Dual-View Siamese Fusion
-        tensor_top, pil_top = load_image_and_tensor(front_bytes)
-        tensor_bottom, pil_bottom = load_image_and_tensor(back_bytes)
 
         # Auto-align inverted views if user uploaded bottom view into front slot and top view into back slot
         v_f = detect_leaf_view(front_file.filename)
@@ -858,8 +893,8 @@ def predict_dual_view():
 def predict_batch():
     """
     Folder-Based Batch Analysis (High-Performance Parallel & Batched Pipeline):
-    - Multi-threaded concurrent image decoding and resizing using ThreadPoolExecutor.
-    - Batched PyTorch tensor evaluation for accelerated CPU vectorization.
+    - Concurrent image decoding and resizing using ThreadPoolExecutor.
+    - Optimized memory footprint and single-pass validation.
     - Automatic T1/D1 pairing and Siamese fallback handling.
     """
     if not model_load_status["loaded"]:
@@ -885,17 +920,14 @@ def predict_batch():
     def _preprocess_single(item):
         fn, raw_bytes = item
         try:
-            # Step 2a: Verify whether image is an authentic paddy leaf
-            is_valid, msg, _ = verify_paddy_leaf_image(raw_bytes)
+            is_valid, msg, _, im, tensor = decode_and_validate_leaf_image(raw_bytes)
             if not is_valid:
                 return fn, None, None, msg
-            im = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
-            tensor = eval_transform(im).unsqueeze(0)  # [1, 3, 256, 256]
             return fn, tensor, im, None
         except Exception as e:
             return fn, None, None, f"Corrupted or invalid image: Failed to process image ({str(e)})"
 
-    num_workers = min(8, os.cpu_count() or 4)
+    num_workers = min(4, os.cpu_count() or 2)
     with ThreadPoolExecutor(max_workers=num_workers) as pool:
         preprocessed_items = list(pool.map(_preprocess_single, file_bytes_map.items()))
 
