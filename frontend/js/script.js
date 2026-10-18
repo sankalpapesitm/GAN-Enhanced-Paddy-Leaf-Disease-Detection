@@ -638,26 +638,15 @@ function initFrontViewSection() {
     formData.append('image', state.frontFile);
 
     try {
-      let res = await fetch(`${API_BASE_URL}/api/predict/front-view`, {
+      const res = await fetch(`${API_BASE_URL}/api/predict/front-view`, {
         method: 'POST',
         body: formData
       });
 
-      // Handle transient Render free-tier spin-up or gateway timeout with automatic single retry
-      if (!res.ok && (res.status === 502 || res.status === 503 || res.status === 504)) {
-        await new Promise(r => setTimeout(r, 2000));
-        res = await fetch(`${API_BASE_URL}/api/predict/front-view`, {
-          method: 'POST',
-          body: formData
-        });
-      }
-
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        const errorMsg = errJson.message || (res.status === 502 
-          ? 'Cloud server is warming up or busy (HTTP 502). Please wait a moment and try again.' 
-          : `Server returned error HTTP ${res.status}`);
-        const errType = errJson.error_type || 'processing_error';
+        const errorMsg = errJson.message || `Server returned error HTTP ${res.status}`;
+        const errType = errJson.error_type || 'invalid_image';
         renderFrontError(errorMsg, errType);
         showAlert(errorMsg, errType === 'corrupted_image' ? 'danger' : 'warning');
         return;
@@ -966,26 +955,15 @@ function initDualViewSection() {
     formData.append('back_image', state.dualBackFile);
 
     try {
-      let res = await fetch(`${API_BASE_URL}/api/predict/dual-view`, {
+      const res = await fetch(`${API_BASE_URL}/api/predict/dual-view`, {
         method: 'POST',
         body: formData
       });
 
-      // Handle transient Render free-tier spin-up or gateway timeout with automatic single retry
-      if (!res.ok && (res.status === 502 || res.status === 503 || res.status === 504)) {
-        await new Promise(r => setTimeout(r, 2000));
-        res = await fetch(`${API_BASE_URL}/api/predict/dual-view`, {
-          method: 'POST',
-          body: formData
-        });
-      }
-
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        const errorMsg = errJson.message || (res.status === 502 
-          ? 'Cloud server is warming up or busy (HTTP 502). Please wait a moment and try again.' 
-          : `Server returned error HTTP ${res.status}`);
-        const errType = errJson.error_type || 'processing_error';
+        const errorMsg = errJson.message || `Server returned error HTTP ${res.status}`;
+        const errType = errJson.error_type || 'invalid_image';
         renderDualError(errorMsg, errType, errJson.failed_view);
         showAlert(errorMsg, errType === 'corrupted_image' ? 'danger' : 'warning');
         return;
