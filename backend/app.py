@@ -67,7 +67,7 @@ DISEASE_METADATA = {
     }
 }
 
-IMG_SIZE = 224
+IMG_SIZE = 256
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD  = [0.229, 0.224, 0.225]
 
@@ -250,28 +250,28 @@ def verify_paddy_leaf_image(file_bytes: bytes) -> Tuple[bool, str, Dict[str, Any
     im_hsv = np.array(im_scaled.convert("HSV"), dtype=np.float32)
     hue, sat, val = im_hsv[:, :, 0], im_hsv[:, :, 1], im_hsv[:, :, 2]
 
-    # 1. Green vegetative foliar tissue (chlorophyll reflection: G > B, G close to or > R, Hue 20-105):
+    # 1. Green vegetative foliar tissue (chlorophyll reflection: G > B, G close to or > R, Hue 18-110):
     green_foliage = (
-        (hue >= 20) & (hue <= 105) &
-        (sat >= 25) & (val >= 25) &
-        (g > b * 1.05) &
-        ((g >= r * 0.88) | (2 * g - r - b > 8))
+        (hue >= 18) & (hue <= 110) &
+        (sat >= 20) & (val >= 20) &
+        (g > b * 1.02) &
+        ((g >= r * 0.85) | (2 * g - r - b > 5))
     )
 
     # 2. Chlorotic foliar tissue (yellowish margins, senescence, leaf blade):
     yellow_foliage = (
-        (hue >= 13) & (hue < 20) &
-        (sat >= 30) & (val >= 35) &
-        (g > b * 1.15) & (r > b * 1.15) &
-        (g >= r * 0.70)
+        (hue >= 12) & (hue < 22) &
+        (sat >= 25) & (val >= 30) &
+        (g > b * 1.10) & (r > b * 1.10) &
+        (g >= r * 0.65) & (2 * g - r - b > -10)
     )
 
     # 3. Necrotic foliar lesions (brown spot lesions, blast spindle centers, hispa scratches):
     lesion_tissue = (
-        (hue >= 5) & (hue <= 22) &
-        (sat >= 20) & (val >= 20) & (val <= 200) &
-        (r > b * 1.10) & (g > b * 1.03) &
-        (r >= g * 0.90)
+        (hue >= 5) & (hue <= 24) &
+        (sat >= 15) & (val >= 15) & (val <= 210) &
+        (r > b * 1.05) & (g > b * 1.01) &
+        (r >= g * 0.85)
     )
 
     total_foliar = green_foliage | yellow_foliage | lesion_tissue
@@ -279,49 +279,53 @@ def verify_paddy_leaf_image(file_bytes: bytes) -> Tuple[bool, str, Dict[str, Any
     yellow_ratio = float(yellow_foliage.mean())
     lesion_ratio = float(lesion_tissue.mean())
     veg_ratio = green_ratio + yellow_ratio
+    total_foliar_ratio = float(total_foliar.mean())
 
-    # Decision 1: Minimum vegetative foliage presence (at least 6% of image area)
-    if veg_ratio < 0.06:
+    # Decision 1: Minimum foliar / vegetative presence
+    # Slender paddy leaf blades in 224x224 typically occupy 2.5% to 25% of image area
+    if veg_ratio < 0.02 and total_foliar_ratio < 0.025:
         return False, "Invalid image: Please upload a paddy leaf image for disease detection.", {
             "error_type": "low_vegetation",
             "veg_ratio": round(veg_ratio * 100, 1),
-            "green_ratio": round(green_ratio * 100, 1)
+            "green_ratio": round(green_ratio * 100, 1),
+            "total_foliar": round(total_foliar_ratio * 100, 1)
         }
 
     # Decision 2: Lesion without foliage (e.g. human skin, leather, wood, brown fur)
-    if lesion_ratio > 0.35 and green_ratio < 0.08:
+    if lesion_ratio > 0.35 and green_ratio < 0.03:
         return False, "Invalid image: Please upload a paddy leaf image for disease detection.", {
             "error_type": "lesion_without_foliage",
             "lesion_ratio": round(lesion_ratio * 100, 1),
             "green_ratio": round(green_ratio * 100, 1)
         }
 
-    # Decision 3: Dominance of non-plant colors (sky, blue ocean, red vehicle/clothing)
-    blue_dom = (b > g * 1.25) & (b > r * 1.25) & (sat > 30)
-    if float(blue_dom.mean()) > 0.25:
+    # Decision 3: Dominance of non-plant colors (bright sky, blue ocean, red vehicle/clothing)
+    # Bright blue objects / sky (val > 100, b > 90) without foliar tissue
+    bright_blue = (b > g * 1.25) & (b > r * 1.25) & (sat > 40) & (val > 100)
+    if float(bright_blue.mean()) > 0.30 and total_foliar_ratio < 0.03:
         return False, "Invalid image: Please upload a paddy leaf image for disease detection.", {
             "error_type": "blue_dominant",
-            "blue_ratio": round(float(blue_dom.mean()) * 100, 1)
+            "blue_ratio": round(float(bright_blue.mean()) * 100, 1)
         }
 
-    red_dom = (r > g * 1.30) & (r > b * 1.30) & (sat > 30)
-    if float(red_dom.mean()) > 0.25:
+    bright_red = (r > g * 1.30) & (r > b * 1.30) & (sat > 40) & (val > 60)
+    if float(bright_red.mean()) > 0.25 and green_ratio < 0.03:
         return False, "Invalid image: Please upload a paddy leaf image for disease detection.", {
             "error_type": "red_dominant",
-            "red_ratio": round(float(red_dom.mean()) * 100, 1)
+            "red_ratio": round(float(bright_red.mean()) * 100, 1)
         }
 
-    # Decision 4: Excess Green in foliar pixels (vegetative chlorophyll check)
-    foliar_exg = (2 * g - r - b)[total_foliar]
-    if len(foliar_exg) > 0 and float(foliar_exg.mean()) < 6.0:
+    # Decision 4: Foliar pixel vegetative chlorophyll / chromaticity check
+    foliar_exg = (2 * g - r - b)[green_foliage]
+    if len(foliar_exg) > 0 and float(foliar_exg.mean()) < 3.0:
         return False, "Invalid image: Please upload a paddy leaf image for disease detection.", {
             "error_type": "low_foliar_exg",
             "exg_mean": round(float(foliar_exg.mean()), 1)
         }
 
-    # Decision 5: Paddy Leaf subject presence in central zone:
-    center_foliar = total_foliar[56:168, 56:168]
-    if float(center_foliar.mean()) < 0.08:
+    # Decision 5: Paddy Leaf subject presence (center or central band)
+    center_foliar = total_foliar[40:184, 40:184]
+    if float(center_foliar.mean()) < 0.02 and total_foliar_ratio < 0.03:
         return False, "Invalid image: Please upload a paddy leaf image for disease detection.", {
             "error_type": "center_not_foliar",
             "center_foliar": round(float(center_foliar.mean()) * 100, 1)
@@ -339,14 +343,104 @@ def verify_paddy_leaf_image(file_bytes: bytes) -> Tuple[bool, str, Dict[str, Any
 def load_and_preprocess_image(file_bytes: bytes) -> torch.Tensor:
     """Loads image bytes, converts to RGB, and transforms to tensor."""
     image = Image.open(io.BytesIO(file_bytes)).convert("RGB")
-    tensor = eval_transform(image).unsqueeze(0)  # [1, 3, 224, 224]
+    tensor = eval_transform(image).unsqueeze(0)  # [1, 3, 256, 256]
     return tensor
 
 
-def run_inference(tensor_top: torch.Tensor, tensor_bottom: Optional[torch.Tensor] = None) -> Dict[str, Any]:
-    """Runs model inference and formats output probabilities and metadata."""
+def load_image_and_tensor(file_bytes: bytes) -> Tuple[torch.Tensor, Image.Image]:
+    """Loads image bytes, converts to RGB, and returns both evaluation tensor and PIL Image."""
+    image = Image.open(io.BytesIO(file_bytes)).convert("RGB")
+    tensor = eval_transform(image).unsqueeze(0)  # [1, 3, 256, 256]
+    return tensor, image
+
+
+def extract_botanical_signals(image_pil: Image.Image) -> Tuple[float, float]:
+    """
+    Extracts foliar lesion and textural characteristics:
+    1. scrape_ratio: Proportion of leaf tissue displaying pale, bleached/translucent longitudinal
+       feeding scrapes characteristic of Paddy Hispa (Dicladispa armigera).
+    2. brown_ratio: Proportion of leaf tissue displaying discrete dark reddish-brown necrotic spots
+       characteristic of Brown Spot (Bipolaris oryzae).
+    """
+    im_scaled = image_pil.resize((IMG_SIZE, IMG_SIZE), Image.Resampling.BILINEAR)
+    arr = np.array(im_scaled, dtype=np.float32)
+    r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+    im_hsv = np.array(im_scaled.convert("HSV"), dtype=np.float32)
+    hue, sat, val = im_hsv[:, :, 0], im_hsv[:, :, 1], im_hsv[:, :, 2]
+
+    # Leaf surface mask (excluding background)
+    leaf = (val > 35) & ((g > b * 0.95) | (r > b * 0.95) | (g > 45))
+    n_leaf = max(int(np.count_nonzero(leaf)), 1)
+
+    # 1. Silvery/translucent feeding scrapes (Paddy Hispa)
+    hispa_scrapes = leaf & (val > 120) & (sat < 65) & (np.abs(r - g) < 20) & (np.abs(g - b) < 25)
+    scrape_ratio = float(np.count_nonzero(hispa_scrapes)) / n_leaf
+
+    # 2. Distinct reddish-brown necrotic spots (Brown Spot)
+    brown_spots = leaf & (r > g * 1.18) & (r > b * 1.30) & (r > 60) & (r < 185) & (sat > 50)
+    brown_ratio = float(np.count_nonzero(brown_spots)) / n_leaf
+
+    return scrape_ratio, brown_ratio
+
+
+def calibrate_uncertain_logits(
+    logits_in: np.ndarray,
+    top_pil: Image.Image,
+    bottom_pil: Optional[Image.Image] = None,
+    view_type: str = "front"
+) -> np.ndarray:
+    """
+    Calibrates logits only in the uncertainty regime when Brown Spot and Hispa predictions are ambiguous
+    (gap < 2.5 logits and top logit < 3.2). Preserves confident model predictions without interference.
+    """
+    logits = np.copy(logits_in)
+    bs_idx = 0  # Brown spot
+    hp_idx = 1  # Healthy Paddy
+    h_idx  = 2  # Hispa
+    lb_idx = 3  # Leaf Blast
+
+    sc_t, br_t = extract_botanical_signals(top_pil)
+    if bottom_pil is not None:
+        sc_b, br_b = extract_botanical_signals(bottom_pil)
+        sc = max(sc_t, sc_b)
+        br = max(br_t, br_b)
+    else:
+        sc, br = sc_t, br_t
+
+    top_logit = float(np.max(logits))
+    margin_bs_h = float(logits[bs_idx] - logits[h_idx])
+
+    # Only calibrate if model is in the uncertainty regime between Brown Spot and Hispa
+    if top_logit < 3.2 and abs(margin_bs_h) < 2.5:
+        if (sc > 0.05 and br < 0.005) or (sc > 0.10 and sc > br * 3.0):
+            # Longitudinal epidermal scrapes without necrotic circular spots -> Hispa
+            boost = 1.6 + 2.0 * min(sc / 0.15, 1.5)
+            logits[h_idx] += boost
+            logits[bs_idx] -= boost * 0.4
+        elif br > 0.008 and sc < 0.08:
+            # Discrete dark necrotic lesions -> Brown spot
+            boost = 1.5 + 2.0 * min(br / 0.015, 1.5)
+            logits[bs_idx] += boost
+            logits[h_idx] -= boost * 0.4
+        elif view_type == "back" and abs(margin_bs_h) < 1.0:
+            if sc > 0.03:
+                logits[h_idx] += 1.2
+
+    return logits
+
+
+def run_inference(
+    tensor_top: torch.Tensor,
+    tensor_bottom: Optional[torch.Tensor] = None,
+    image_top: Optional[Image.Image] = None,
+    image_bottom: Optional[Image.Image] = None,
+    view_type: str = "front"
+) -> Dict[str, Any]:
+    """Runs model inference, applies TTA & botanical calibration, and formats output probabilities and metadata."""
     if model is None:
         raise RuntimeError("Model is not initialized or checkpoint failed to load.")
+
+    is_dual_view = tensor_bottom is not None and tensor_bottom is not tensor_top
 
     tensor_top = tensor_top.to(device)
     if tensor_bottom is not None:
@@ -356,8 +450,27 @@ def run_inference(tensor_top: torch.Tensor, tensor_bottom: Optional[torch.Tensor
 
     start_t = time.perf_counter()
     with torch.inference_mode():
-        logits = model(tensor_top, tensor_bottom)
-        probs = torch.softmax(logits, dim=1)[0].cpu().numpy()
+        if is_dual_view:
+            # Dual-View: ensemble canonical orientation (0.80) with symmetric inverted (0.20)
+            logits_fwd = model(tensor_top, tensor_bottom)
+            logits_rev = model(tensor_bottom, tensor_top)
+            logits_tensor = 0.80 * logits_fwd + 0.20 * logits_rev
+        else:
+            # Single-View: Siamese feature extraction with horizontal flip TTA
+            out1 = model(tensor_top, tensor_bottom)
+            t_top_flip = torch.flip(tensor_top, dims=[3])
+            t_bot_flip = torch.flip(tensor_bottom, dims=[3])
+            out2 = model(t_top_flip, t_bot_flip)
+            logits_tensor = (out1 + out2) / 2.0
+
+        logits = logits_tensor[0].cpu().numpy()
+
+    # Apply foliar calibration in the uncertainty regime if PIL image is available
+    if image_top is not None:
+        logits = calibrate_uncertain_logits(logits, image_top, bottom_pil=image_bottom, view_type=view_type)
+
+    probs = np.exp(logits - np.max(logits))
+    probs = probs / np.sum(probs)
     elapsed_ms = round((time.perf_counter() - start_t) * 1000, 2)
 
     pred_idx = int(probs.argmax())
@@ -610,9 +723,10 @@ def predict_front_view():
             }), 400
 
         # Step 2: Valid paddy leaf -> proceed with feature extraction and disease diagnosis
-        tensor_top = load_and_preprocess_image(file_bytes)
-        # Siamese single-view evaluation: same top image used for both inputs
-        inf = run_inference(tensor_top, tensor_bottom=tensor_top)
+        tensor_top, pil_top = load_image_and_tensor(file_bytes)
+        view_type = detect_leaf_view(filename)
+        # Siamese single-view evaluation with TTA and foliar uncertainty calibration
+        inf = run_inference(tensor_top, tensor_bottom=None, image_top=pil_top, view_type=view_type)
 
         result_data = {
             "status": "success",
@@ -708,10 +822,18 @@ def predict_dual_view():
             }), 400
 
         # Step 3: Both views verified -> execute full Dual-View Siamese Fusion
-        tensor_top = load_and_preprocess_image(front_bytes)
-        tensor_bottom = load_and_preprocess_image(back_bytes)
+        tensor_top, pil_top = load_image_and_tensor(front_bytes)
+        tensor_bottom, pil_bottom = load_image_and_tensor(back_bytes)
 
-        inf = run_inference(tensor_top, tensor_bottom)
+        # Auto-align inverted views if user uploaded bottom view into front slot and top view into back slot
+        v_f = detect_leaf_view(front_file.filename)
+        v_b = detect_leaf_view(back_file.filename)
+        if v_f == "back" and v_b == "front":
+            tensor_top, tensor_bottom = tensor_bottom, tensor_top
+            pil_top, pil_bottom = pil_bottom, pil_top
+            logger.info(f"Auto-aligned inverted dual views: '{front_file.filename}' -> bottom, '{back_file.filename}' -> top")
+
+        inf = run_inference(tensor_top, tensor_bottom, image_top=pil_top, image_bottom=pil_bottom, view_type="front")
 
         return jsonify({
             "status": "success",
@@ -766,19 +888,20 @@ def predict_batch():
             # Step 2a: Verify whether image is an authentic paddy leaf
             is_valid, msg, _ = verify_paddy_leaf_image(raw_bytes)
             if not is_valid:
-                return fn, None, msg
+                return fn, None, None, msg
             im = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
-            tensor = eval_transform(im).unsqueeze(0)  # [1, 3, 224, 224]
-            return fn, tensor, None
+            tensor = eval_transform(im).unsqueeze(0)  # [1, 3, 256, 256]
+            return fn, tensor, im, None
         except Exception as e:
-            return fn, None, f"Corrupted or invalid image: Failed to process image ({str(e)})"
+            return fn, None, None, f"Corrupted or invalid image: Failed to process image ({str(e)})"
 
     num_workers = min(8, os.cpu_count() or 4)
     with ThreadPoolExecutor(max_workers=num_workers) as pool:
         preprocessed_items = list(pool.map(_preprocess_single, file_bytes_map.items()))
 
-    tensor_map = {fn: tensor for fn, tensor, err in preprocessed_items if tensor is not None}
-    error_map = {fn: err for fn, tensor, err in preprocessed_items if err is not None}
+    tensor_map = {fn: tensor for fn, tensor, im, err in preprocessed_items if tensor is not None}
+    image_map = {fn: im for fn, tensor, im, err in preprocessed_items if im is not None}
+    error_map = {fn: err for fn, tensor, im, err in preprocessed_items if err is not None}
 
     batch_results = []
     class_distribution = {cls: 0 for cls in CLASSES}
@@ -817,6 +940,7 @@ def predict_batch():
                 })
             else:
                 t_f = tensor_map[front_fn]
+                v_f = detect_leaf_view(front_fn)
                 inference_queue.append({
                     "sample_id": sample_id,
                     "mode": "Top-Only (T1)",
@@ -824,7 +948,11 @@ def predict_batch():
                     "back_filename": None,
                     "matched": True,
                     "t_top": t_f,
-                    "t_bot": t_f  # Siamese single-view fallback
+                    "t_bot": t_f,
+                    "im_top": image_map[front_fn],
+                    "im_bot": None,
+                    "is_dual": False,
+                    "view_type": v_f
                 })
     else:
         # Step 3: Map filenames into logical sample groups for dual/auto pairing
@@ -863,14 +991,33 @@ def predict_batch():
                         "error": err_msg
                     })
                 else:
+                    t_f = tensor_map[front_fn]
+                    t_b = tensor_map[back_fn]
+                    im_f = image_map[front_fn]
+                    im_b = image_map[back_fn]
+
+                    # Auto-align views if front is back-view and back is front-view
+                    v_f = detect_leaf_view(front_fn)
+                    v_b = detect_leaf_view(back_fn)
+                    if v_f == "back" and v_b == "front":
+                        t_top, t_bot = t_b, t_f
+                        im_top, im_bot = im_b, im_f
+                    else:
+                        t_top, t_bot = t_f, t_b
+                        im_top, im_bot = im_f, im_b
+
                     inference_queue.append({
                         "sample_id": sample_id,
                         "mode": "Dual-View (T1 + D1)",
                         "front_filename": front_fn,
                         "back_filename": back_fn,
                         "matched": True,
-                        "t_top": tensor_map[front_fn],
-                        "t_bot": tensor_map[back_fn]
+                        "t_top": t_top,
+                        "t_bot": t_bot,
+                        "im_top": im_top,
+                        "im_bot": im_bot,
+                        "is_dual": True,
+                        "view_type": "front"
                     })
 
             # Case B: Front view only exists (Auto mode fallback to Top-Only)
@@ -896,7 +1043,11 @@ def predict_batch():
                             "back_filename": None,
                             "matched": True,
                             "t_top": t_f,
-                            "t_bot": t_f  # Siamese single-view fallback
+                            "t_bot": t_f,
+                            "im_top": image_map[front_fn],
+                            "im_bot": None,
+                            "is_dual": False,
+                            "view_type": "front"
                         })
                 else:
                     unmatched_count += 1
@@ -910,18 +1061,47 @@ def predict_batch():
                         "reason": "Dual-View mode requires both T1 and D1 views. Missing back image."
                     })
 
-            # Case C: Back view only exists (cannot diagnose back view alone)
+            # Case C: Back view only exists
             elif back_list and not front_list:
-                unmatched_count += 1
-                batch_results.append({
-                    "sample_id": sample_id,
-                    "status": "unmatched",
-                    "mode": "Unmatched",
-                    "front_filename": "Missing Front View (T1)",
-                    "back_filename": back_list[0],
-                    "matched": False,
-                    "reason": "Front view (T1) is mandatory for disease diagnosis. Cannot classify back view alone."
-                })
+                back_fn = back_list[0]
+                if mode == "auto":
+                    # In Auto mode, allow single back-view specimen diagnosis fallback
+                    if back_fn in error_map:
+                        error_count += 1
+                        batch_results.append({
+                            "sample_id": sample_id,
+                            "status": "error",
+                            "mode": "Single-View (B1 Fallback)",
+                            "front_filename": None,
+                            "back_filename": back_fn,
+                            "error": error_map[back_fn]
+                        })
+                    else:
+                        t_b = tensor_map[back_fn]
+                        inference_queue.append({
+                            "sample_id": sample_id,
+                            "mode": "Single-View (B1 Fallback)",
+                            "front_filename": None,
+                            "back_filename": back_fn,
+                            "matched": True,
+                            "t_top": t_b,
+                            "t_bot": t_b,
+                            "im_top": image_map[back_fn],
+                            "im_bot": None,
+                            "is_dual": False,
+                            "view_type": "back"
+                        })
+                else:
+                    unmatched_count += 1
+                    batch_results.append({
+                        "sample_id": sample_id,
+                        "status": "unmatched",
+                        "mode": "Dual-View Required",
+                        "front_filename": "Missing Front View (T1)",
+                        "back_filename": back_list[0],
+                        "matched": False,
+                        "reason": "Dual-View mode requires both T1 and D1 views. Missing front image."
+                    })
 
             # Case D: Unknown naming convention
             elif unknown_list:
@@ -939,6 +1119,7 @@ def predict_batch():
                             })
                         else:
                             t_unk = tensor_map[unk_fn]
+                            v_unk = detect_leaf_view(unk_fn)
                             inference_queue.append({
                                 "sample_id": sample_id,
                                 "mode": "Top-Only (T1)",
@@ -946,7 +1127,11 @@ def predict_batch():
                                 "back_filename": None,
                                 "matched": True,
                                 "t_top": t_unk,
-                                "t_bot": t_unk
+                                "t_bot": t_unk,
+                                "im_top": image_map[unk_fn],
+                                "im_bot": None,
+                                "is_dual": False,
+                                "view_type": v_unk
                             })
                     else:
                         unmatched_count += 1
@@ -960,48 +1145,50 @@ def predict_batch():
                             "reason": "Filename does not specify T1 or D1 view tag."
                         })
 
-    # Step 5: Execute batched model inference on queued samples
-    BATCH_CHUNK_SIZE = 16
-    for i in range(0, len(inference_queue), BATCH_CHUNK_SIZE):
-        chunk = inference_queue[i : i + BATCH_CHUNK_SIZE]
-        batch_top = torch.cat([item["t_top"] for item in chunk], dim=0).to(device)
-        batch_bot = torch.cat([item["t_bot"] for item in chunk], dim=0).to(device)
+    # Step 5: Execute calibrated model inference on queued samples
+    for item in inference_queue:
+        t_top = item["t_top"]
+        t_bot = item["t_bot"]
+        im_top = item.get("im_top")
+        im_bot = item.get("im_bot")
+        is_dual = item.get("is_dual", False)
+        v_type = item.get("view_type", "front")
 
-        start_chunk_t = time.perf_counter()
-        with torch.inference_mode():
-            logits = model(batch_top, batch_bot)
-            probs_matrix = torch.softmax(logits, dim=1).cpu().numpy()
-        chunk_elapsed_ms = round((time.perf_counter() - start_chunk_t) * 1000, 2)
-        per_sample_ms = round(chunk_elapsed_ms / len(chunk), 2)
+        # Run exact calibrated inference matching single-view and dual-view pipelines
+        inf = run_inference(
+            t_top,
+            tensor_bottom=t_bot if is_dual else None,
+            image_top=im_top,
+            image_bottom=im_bot,
+            view_type=v_type
+        )
 
-        for j, item in enumerate(chunk):
-            probs = probs_matrix[j]
-            pred_idx = int(probs.argmax())
-            pred_class = CLASSES[pred_idx]
-            conf = round(float(probs[pred_idx]) * 100, 2)
-            class_probs = {cls: round(float(probs[k]) * 100, 2) for k, cls in enumerate(CLASSES)}
-            meta = DISEASE_METADATA.get(pred_class, {})
+        pred_class = inf["predicted_class"]
+        conf = inf["confidence"]
+        pred_idx = inf["class_index"]
+        class_probs = inf["probabilities"]
+        meta = inf["disease_info"]
 
-            class_distribution[pred_class] += 1
-            if pred_class == "Healthy Paddy":
-                healthy_count += 1
-            else:
-                diseased_count += 1
+        class_distribution[pred_class] += 1
+        if pred_class == "Healthy Paddy":
+            healthy_count += 1
+        else:
+            diseased_count += 1
 
-            batch_results.append({
-                "sample_id": item["sample_id"],
-                "status": "success",
-                "mode": item["mode"],
-                "front_filename": item["front_filename"],
-                "back_filename": item["back_filename"],
-                "matched": item["matched"],
-                "predicted_class": pred_class,
-                "confidence": conf,
-                "class_index": pred_idx,
-                "probabilities": class_probs,
-                "inference_time_ms": per_sample_ms,
-                "disease_info": meta
-            })
+        batch_results.append({
+            "sample_id": item["sample_id"],
+            "status": "success",
+            "mode": item["mode"],
+            "front_filename": item["front_filename"],
+            "back_filename": item["back_filename"],
+            "matched": item["matched"],
+            "predicted_class": pred_class,
+            "confidence": conf,
+            "class_index": pred_idx,
+            "probabilities": class_probs,
+            "inference_time_ms": inf["inference_time_ms"],
+            "disease_info": meta
+        })
 
     # Summary statistics
     analyzed_success = [r for r in batch_results if r.get("status") == "success"]
