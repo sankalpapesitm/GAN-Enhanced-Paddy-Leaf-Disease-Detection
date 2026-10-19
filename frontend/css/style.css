@@ -1078,6 +1078,71 @@ p {
 }
 
 /* ==============================================================================
+   METRICS QUAD GRID (Accuracy, Precision, Recall, F1-Score)
+   ============================================================================== */
+.metrics-quad-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 768px) {
+  .metrics-quad-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.metric-quad-card {
+  background: #ffffff;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 12px 10px;
+  text-align: center;
+  box-shadow: var(--shadow-2xs);
+  transition: var(--transition-smooth);
+}
+
+.metric-quad-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-xs);
+  border-color: var(--primary-emerald);
+}
+
+.metric-quad-title {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--slate-500);
+  margin-bottom: 4px;
+}
+
+.metric-quad-val {
+  font-size: 1.35rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--primary-emerald);
+}
+
+.metric-quad-sub {
+  font-size: 0.65rem;
+  color: var(--slate-400);
+  margin-top: 3px;
+  font-weight: 500;
+}
+
+.table-metric-badge {
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 3px 7px;
+  border-radius: var(--radius-xs);
+  display: inline-block;
+  background-color: var(--slate-100);
+  border: 1px solid var(--border-color);
+  color: var(--slate-700);
+}
+
+/* ==============================================================================
    BATCH SUMMARY & DATA TABLE
    ============================================================================== */
 .summary-metric-card {

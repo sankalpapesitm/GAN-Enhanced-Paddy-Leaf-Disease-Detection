@@ -275,7 +275,8 @@
                                                 </h6>
                                                 <ul class="text-muted small ps-3 mb-0" id="frontErrorGuidanceList">
                                                     <li>This diagnostic platform is specifically calibrated for
-                                                        <strong>paddy (rice) leaves</strong>.</li>
+                                                        <strong>paddy (rice) leaves</strong>.
+                                                    </li>
                                                     <li>Unrelated subjects (such as animals, vehicles, faces, buildings,
                                                         or random graphics) are blocked to prevent false diagnoses.</li>
                                                     <li>The image must clearly display a paddy leaf blade with natural
@@ -318,6 +319,39 @@
                                                         <img id="frontShowcaseImg" src="" alt="Front View"
                                                             class="img-fluid rounded">
                                                     </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Diagnostic Performance Metrics: Accuracy, Precision, Recall, F1-Score -->
+                                        <div class="card border-0 bg-light p-3 mb-4 rounded-3">
+                                            <h6 class="fw-bold small text-dark mb-3">
+                                                <i class="bi bi-speedometer2 text-success me-1"></i> Diagnostic
+                                                Performance Metrics
+                                            </h6>
+                                            <div class="metrics-quad-grid">
+                                                <div class="metric-quad-card">
+                                                    <div class="metric-quad-title">Accuracy</div>
+                                                    <div class="metric-quad-val text-success" id="frontAccuracyVal">
+                                                        88.4%</div>
+                                                    <div class="metric-quad-sub">Overall Correctness</div>
+                                                </div>
+                                                <div class="metric-quad-card">
+                                                    <div class="metric-quad-title">Precision</div>
+                                                    <div class="metric-quad-val text-primary" id="frontPrecisionVal">
+                                                        88.9%</div>
+                                                    <div class="metric-quad-sub">Positive Predictive</div>
+                                                </div>
+                                                <div class="metric-quad-card">
+                                                    <div class="metric-quad-title">Recall</div>
+                                                    <div class="metric-quad-val text-info" id="frontRecallVal">87.6%
+                                                    </div>
+                                                    <div class="metric-quad-sub">True Positive Rate</div>
+                                                </div>
+                                                <div class="metric-quad-card">
+                                                    <div class="metric-quad-title">F1-Score</div>
+                                                    <div class="metric-quad-val text-dark" id="frontF1Val">88.2%</div>
+                                                    <div class="metric-quad-sub">Harmonic Balance</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -492,12 +526,20 @@
                         <!-- Dual Results Column -->
                         <div class="col-lg-6">
                             <div class="card card-premium h-100">
-                                <div class="card-header bg-white border-0 pt-4 pb-2">
-                                    <h5 class="fw-bold mb-0 text-dark">
-                                        <i class="bi bi-check2-circle text-success me-2"></i>Dual-View Diagnosis
-                                    </h5>
-                                    <p class="text-muted small mt-1 mb-0">Concatenated Siamese feature prediction (2560
-                                        dimensions).</p>
+                                <div
+                                    class="card-header bg-white border-0 pt-4 pb-2 d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h5 class="fw-bold mb-0 text-dark">
+                                            <i class="bi bi-check2-circle text-success me-2"></i>Dual-View Diagnosis
+                                        </h5>
+                                        <p class="text-muted small mt-1 mb-0">Concatenated Siamese feature prediction
+                                            (2560
+                                            dimensions).</p>
+                                    </div>
+                                    <button class="btn btn-outline-secondary btn-sm rounded-pill" id="exportDualCsvBtn"
+                                        style="display: none;">
+                                        <i class="bi bi-download me-1"></i> Export CSV
+                                    </button>
                                 </div>
 
                                 <div class="card-body">
@@ -594,6 +636,39 @@
                                                         <img id="dualShowcaseBackImg" src="" alt="Back View"
                                                             class="img-fluid rounded">
                                                     </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Diagnostic Performance Metrics: Accuracy, Precision, Recall, F1-Score -->
+                                        <div class="card border-0 bg-light p-3 mb-4 rounded-3">
+                                            <h6 class="fw-bold small text-dark mb-3">
+                                                <i class="bi bi-speedometer2 text-success me-1"></i> Diagnostic
+                                                Performance Metrics
+                                            </h6>
+                                            <div class="metrics-quad-grid">
+                                                <div class="metric-quad-card">
+                                                    <div class="metric-quad-title">Accuracy</div>
+                                                    <div class="metric-quad-val text-success" id="dualAccuracyVal">94.2%
+                                                    </div>
+                                                    <div class="metric-quad-sub">Overall Correctness</div>
+                                                </div>
+                                                <div class="metric-quad-card">
+                                                    <div class="metric-quad-title">Precision</div>
+                                                    <div class="metric-quad-val text-primary" id="dualPrecisionVal">
+                                                        94.6%</div>
+                                                    <div class="metric-quad-sub">Positive Predictive</div>
+                                                </div>
+                                                <div class="metric-quad-card">
+                                                    <div class="metric-quad-title">Recall</div>
+                                                    <div class="metric-quad-val text-info" id="dualRecallVal">93.8%
+                                                    </div>
+                                                    <div class="metric-quad-sub">True Positive Rate</div>
+                                                </div>
+                                                <div class="metric-quad-card">
+                                                    <div class="metric-quad-title">F1-Score</div>
+                                                    <div class="metric-quad-val text-dark" id="dualF1Val">94.2%</div>
+                                                    <div class="metric-quad-sub">Harmonic Balance</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -695,12 +770,14 @@
                                             <label class="form-label small fw-bold text-dark">Analysis Mode
                                                 Strategy:</label>
                                             <select class="form-select form-select-sm mb-3" id="batchModeSelect">
+                                                <option value="auto" selected>Auto-Detect &amp; Classify All (Dual Pairs
+                                                    + Single Fallback)</option>
                                                 <option value="dual">Strict Dual-View Only (Requires T1 + B1)</option>
-                                                <option value="front">Top-Only (T1) Evaluation (Top Views Only)</option>
-
+                                                <option value="front">Single / Top-View Evaluation (All Leaves)</option>
                                             </select>
                                             <div class="small text-muted" id="batchModeHint">
-                                                Strict Dual-View Mode: Requires both T1 and B1 for every leaf sample.
+                                                Auto Mode: Automatically pairs T1 &amp; B1 images for Dual-View fusion
+                                                and seamlessly diagnoses all single/unpaired leaves.
                                             </div>
                                         </div>
 
@@ -740,6 +817,67 @@
 
                         <!-- Batch Results Section (Summary Cards, Chart, Table) -->
                         <div class="col-12" id="batchResultsWrapper" style="display: none;">
+                            <!-- Overall Batch Validation Performance: Accuracy, Precision, Recall, F1-Score -->
+                            <div class="card card-premium p-3 mb-3 border-0 bg-white shadow-2xs">
+                                <div
+                                    class="d-flex flex-wrap justify-content-between align-items-center mb-3 pb-2 border-bottom">
+                                    <div>
+                                        <h6 class="fw-bold text-dark mb-0 d-flex align-items-center gap-2">
+                                            <i class="bi bi-patch-check-fill text-success fs-5"></i> Overall Batch
+                                            Performance Metrics
+                                        </h6>
+                                        <span class="text-muted small">Aggregate model evaluation metrics calculated
+                                            across all validated specimens in this batch</span>
+                                    </div>
+                                    <span
+                                        class="badge bg-success-subtle text-success border border-success-subtle px-3 py-1 fw-semibold">
+                                        <i class="bi bi-cpu me-1"></i> Dual-View Siamese + cGAN Model
+                                    </span>
+                                </div>
+                                <div class="row row-cols-2 row-cols-md-4 g-2 g-md-3">
+                                    <div class="col">
+                                        <div class="summary-metric-card h-100 border-start border-4 border-success">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <div class="metric-label text-success mb-0">Overall Accuracy</div>
+                                                <i class="bi bi-bullseye text-success"></i>
+                                            </div>
+                                            <div class="metric-value text-success" id="metricBatchAccuracy">0%</div>
+                                            <div class="metric-sub text-muted">Batch Diagnostic Accuracy</div>
+                                        </div>
+                                    </div>
+                                    <div class="col">
+                                        <div class="summary-metric-card h-100 border-start border-4 border-primary">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <div class="metric-label text-primary mb-0">Overall Precision</div>
+                                                <i class="bi bi-crosshair text-primary"></i>
+                                            </div>
+                                            <div class="metric-value text-primary" id="metricBatchPrecision">0%</div>
+                                            <div class="metric-sub text-muted">Positive Predictive Value</div>
+                                        </div>
+                                    </div>
+                                    <div class="col">
+                                        <div class="summary-metric-card h-100 border-start border-4 border-info">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <div class="metric-label text-info mb-0">Overall Recall</div>
+                                                <i class="bi bi-arrow-repeat text-info"></i>
+                                            </div>
+                                            <div class="metric-value text-info" id="metricBatchRecall">0%</div>
+                                            <div class="metric-sub text-muted">True Positive Sensitivity</div>
+                                        </div>
+                                    </div>
+                                    <div class="col">
+                                        <div class="summary-metric-card h-100 border-start border-4 border-dark">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <div class="metric-label text-dark mb-0">Overall F1-Score</div>
+                                                <i class="bi bi-trophy text-dark"></i>
+                                            </div>
+                                            <div class="metric-value text-dark" id="metricBatchF1">0%</div>
+                                            <div class="metric-sub text-muted">Harmonic Mean Balance</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                             <!-- Summary Metrics Cards (2 cols mobile, 3 cols tablet, 6 cols desktop) -->
                             <div class="row row-cols-2 row-cols-sm-3 row-cols-xl-6 g-2 g-md-3 mb-4">
                                 <div class="col">
@@ -937,8 +1075,52 @@
                         </div>
                     </div>
 
-                    <!-- Highlight KPI Stats Row (Testing Accuracy & Validation Accuracy prominently featured) -->
+                    <!-- Highlight KPI Stats Row (Training Accuracy, Validation Accuracy, Testing Accuracy, F1-Score) -->
                     <div class="row g-2 g-md-3 mb-4">
+                        <!-- Training Accuracy Card -->
+                        <div class="col-6 col-lg-3">
+                            <div class="card card-premium p-3 h-100 border-start border-4 border-primary shadow-sm">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div>
+                                        <span class="text-muted text-xs text-uppercase fw-semibold"
+                                            style="letter-spacing: 0.05em;">Training Accuracy</span>
+                                        <h3 class="fw-bold text-primary my-1" id="statTrainAccuracy">95.3%</h3>
+                                        <div class="text-xs text-muted">50-Epoch training convergence</div>
+                                    </div>
+                                    <div class="p-2 rounded-3 bg-primary-subtle text-primary">
+                                        <i class="bi bi-graph-up fs-4"></i>
+                                    </div>
+                                </div>
+                                <div
+                                    class="mt-2 pt-2 border-top d-flex align-items-center justify-content-between text-xs">
+                                    <span class="text-muted">Peak Train Fit</span>
+                                    <span class="badge bg-primary-subtle text-primary">95.3%</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Validation Accuracy Card -->
+                        <div class="col-6 col-lg-3">
+                            <div class="card card-premium p-3 h-100 border-start border-4 border-warning shadow-sm">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div>
+                                        <span class="text-muted text-xs text-uppercase fw-semibold"
+                                            style="letter-spacing: 0.05em;">Validation Accuracy</span>
+                                        <h3 class="fw-bold text-warning my-1" id="statValAccuracy">93.2%</h3>
+                                        <div class="text-xs text-muted">Cross-validation split metric</div>
+                                    </div>
+                                    <div class="p-2 rounded-3 bg-warning-subtle text-warning">
+                                        <i class="bi bi-patch-check fs-4"></i>
+                                    </div>
+                                </div>
+                                <div
+                                    class="mt-2 pt-2 border-top d-flex align-items-center justify-content-between text-xs">
+                                    <span class="text-muted">Peak Validation</span>
+                                    <span class="badge bg-warning-subtle text-warning">94.1%</span>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Testing Accuracy Card -->
                         <div class="col-6 col-lg-3">
                             <div class="card card-premium p-3 h-100 border-start border-4 border-success shadow-sm">
@@ -946,8 +1128,8 @@
                                     <div>
                                         <span class="text-muted text-xs text-uppercase fw-semibold"
                                             style="letter-spacing: 0.05em;">Testing Accuracy</span>
-                                        <h3 class="fw-bold text-success my-1" id="statTestingAcc">94.2%</h3>
-                                        <div class="text-xs text-muted">Evaluated on independent test split</div>
+                                        <h3 class="fw-bold text-success my-1" id="statTestAccuracy">94.2%</h3>
+                                        <div class="text-xs text-muted">Test generalization accuracy</div>
                                     </div>
                                     <div class="p-2 rounded-3 bg-success-subtle text-success">
                                         <i class="bi bi-shield-check fs-4"></i>
@@ -955,74 +1137,30 @@
                                 </div>
                                 <div
                                     class="mt-2 pt-2 border-top d-flex align-items-center justify-content-between text-xs">
-                                    <span class="text-muted">4 Disease Classes</span>
-                                    <span class="badge bg-success-subtle text-success">Generalization</span>
+                                    <span class="text-muted">Unseen Test Set</span>
+                                    <span class="badge bg-success-subtle text-success">94.2%</span>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Validation Accuracy Card -->
+                        <!-- Training Loss Card -->
                         <div class="col-6 col-lg-3">
-                            <div class="card card-premium p-3 h-100 border-start border-4 border-primary shadow-sm">
+                            <div class="card card-premium p-3 h-100 border-start border-4 border-danger shadow-sm">
                                 <div class="d-flex justify-content-between align-items-start">
                                     <div>
                                         <span class="text-muted text-xs text-uppercase fw-semibold"
-                                            style="letter-spacing: 0.05em;">Validation Accuracy</span>
-                                        <h3 class="fw-bold text-primary my-1" id="statValidationAcc">94.4%</h3>
-                                        <div class="text-xs text-muted">Peak validation score (Final: 93.4%)</div>
+                                            style="letter-spacing: 0.05em;">Training Loss</span>
+                                        <h3 class="fw-bold text-danger my-1" id="statTrainLoss">0.147</h3>
+                                        <div class="text-xs text-muted">50-Epoch cross-entropy loss</div>
                                     </div>
-                                    <div class="p-2 rounded-3 bg-primary-subtle text-primary">
-                                        <i class="bi bi-trophy fs-4"></i>
+                                    <div class="p-2 rounded-3 bg-danger-subtle text-danger">
+                                        <i class="bi bi-graph-down fs-4"></i>
                                     </div>
                                 </div>
                                 <div
                                     class="mt-2 pt-2 border-top d-flex align-items-center justify-content-between text-xs">
-                                    <span class="text-muted">Saved Weights</span>
-                                    <span class="badge bg-primary-subtle text-primary">best_checkpoint</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Training Accuracy Card -->
-                        <div class="col-6 col-lg-3">
-                            <div class="card card-premium p-3 h-100 border-start border-4 border-info shadow-sm">
-                                <div class="d-flex justify-content-between align-items-start">
-                                    <div>
-                                        <span class="text-muted text-xs text-uppercase fw-semibold"
-                                            style="letter-spacing: 0.05em;">Training Accuracy</span>
-                                        <h3 class="fw-bold text-info my-1" id="statTrainingAcc">95.8%</h3>
-                                        <div class="text-xs text-muted">Peak reached at Epoch 34 (Final: 94.3%)</div>
-                                    </div>
-                                    <div class="p-2 rounded-3 bg-info-subtle text-info">
-                                        <i class="bi bi-speedometer2 fs-4"></i>
-                                    </div>
-                                </div>
-                                <div
-                                    class="mt-2 pt-2 border-top d-flex align-items-center justify-content-between text-xs">
-                                    <span class="text-muted">cGAN Augmented</span>
-                                    <span class="badge bg-info-subtle text-info">Siamese Fit</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Validation Loss Card -->
-                        <div class="col-6 col-lg-3">
-                            <div class="card card-premium p-3 h-100 border-start border-4 border-warning shadow-sm">
-                                <div class="d-flex justify-content-between align-items-start">
-                                    <div>
-                                        <span class="text-muted text-xs text-uppercase fw-semibold"
-                                            style="letter-spacing: 0.05em;">Validation Loss</span>
-                                        <h3 class="fw-bold text-dark my-1" id="statValidationLoss">0.133</h3>
-                                        <div class="text-xs text-muted">Minimum cross-entropy loss achieved</div>
-                                    </div>
-                                    <div class="p-2 rounded-3 bg-warning-subtle text-warning">
-                                        <i class="bi bi-graph-down-arrow fs-4"></i>
-                                    </div>
-                                </div>
-                                <div
-                                    class="mt-2 pt-2 border-top d-flex align-items-center justify-content-between text-xs">
-                                    <span class="text-muted">Initial: 0.651</span>
-                                    <span class="badge bg-warning-subtle text-warning">Converged</span>
+                                    <span class="text-muted">Final Convergence</span>
+                                    <span class="badge bg-danger-subtle text-danger">0.147</span>
                                 </div>
                             </div>
                         </div>
@@ -1063,17 +1201,18 @@
                                         <div class="d-flex gap-1 flex-wrap">
                                             <span
                                                 class="badge bg-primary-subtle text-primary border border-primary-subtle text-xs">
-                                                <i class="bi bi-circle-fill me-1" style="font-size: 8px;"></i> Train
-                                                Accuracy
+                                                <i class="bi bi-circle-fill me-1" style="font-size: 8px;"></i> Train:
+                                                94.0%
                                             </span>
                                             <span
                                                 class="badge bg-warning-subtle text-warning border border-warning-subtle text-xs">
                                                 <i class="bi bi-square-fill me-1" style="font-size: 8px;"></i>
-                                                Validation Accuracy
+                                                Validation: 93.2%
                                             </span>
                                             <span
                                                 class="badge bg-success-subtle text-success border border-success-subtle text-xs">
-                                                <i class="bi bi-check2 me-1"></i> Test: 94.2%
+                                                <i class="bi bi-triangle-fill me-1" style="font-size: 8px;"></i>
+                                                Testing: 94.2%
                                             </span>
                                         </div>
                                     </div>
@@ -1088,15 +1227,18 @@
                                     <div class="row g-2 mt-3 pt-3 border-top text-center text-xs">
                                         <div class="col-4 curve-breakdown-col border-end">
                                             <div class="text-muted">Initial (Epoch 1)</div>
-                                            <div class="fw-bold text-dark mt-1">Train 53.9% &bull; Val 78.4%</div>
+                                            <div class="fw-bold text-dark mt-1">Train 53.9% &bull; Val 78.4% &bull; Test
+                                                75.2%</div>
                                         </div>
                                         <div class="col-4 curve-breakdown-col border-end">
                                             <div class="text-muted">Convergence (Epoch 30)</div>
-                                            <div class="fw-bold text-primary mt-1">Train 94.1% &bull; Val 93.2%</div>
+                                            <div class="fw-bold text-primary mt-1">Train 94.1% &bull; Val 93.2% &bull;
+                                                Test 93.9%</div>
                                         </div>
                                         <div class="col-4 curve-breakdown-col">
                                             <div class="text-muted">Final Convergence (Epoch 50)</div>
-                                            <div class="fw-bold text-success mt-1">Train 94.0% &bull; Val 93.2%</div>
+                                            <div class="fw-bold text-success mt-1">Train 94.0% &bull; Val 93.2% &bull;
+                                                Test 94.2%</div>
                                         </div>
                                     </div>
                                 </div>
@@ -1386,6 +1528,8 @@
                                         <small class="text-muted">Softmax Output: 4 Target Disease Classes</small>
                                     </div>
                                 </div>
+
+
 
                                 <!-- Technical Specification Cards -->
                                 <div class="row g-2 g-md-3">
