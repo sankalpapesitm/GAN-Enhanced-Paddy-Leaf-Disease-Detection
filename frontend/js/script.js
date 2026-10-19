@@ -58,8 +58,8 @@ const state = {
 // 2. COMPLETE RESULTS & STATE RESET
 // ==============================================================================
 
-function resetAllResults(notify = false) {
-  // 1. Reset Front-View (T1) State & UI
+// Front-View (T1) State & UI Reset
+function resetFrontViewSection() {
   state.frontFile = null;
   state.frontResult = null;
   const frontInput = document.getElementById('frontFileInput');
@@ -84,8 +84,10 @@ function resetAllResults(notify = false) {
   if (frontError) frontError.style.display = 'none';
   const exportFrontBtn = document.getElementById('exportFrontCsvBtn');
   if (exportFrontBtn) exportFrontBtn.style.display = 'none';
+}
 
-  // 2. Reset Dual-View (T1 + B1) State & UI
+// Dual-View (T1 + B1) State & UI Reset
+function resetDualViewSection() {
   state.dualFrontFile = null;
   state.dualBackFile = null;
   state.dualResult = null;
@@ -127,8 +129,10 @@ function resetAllResults(notify = false) {
   if (dualError) dualError.style.display = 'none';
   const exportDualBtn = document.getElementById('exportDualCsvBtn');
   if (exportDualBtn) exportDualBtn.style.display = 'none';
+}
 
-  // 3. Reset Batch Analysis State & UI
+// Batch Analysis State & UI Reset
+function resetBatchSection() {
   state.batchFiles = [];
   state.batchResults = null;
   state.batchFilesMap?.clear();
@@ -161,18 +165,52 @@ function resetAllResults(notify = false) {
   if (batchTableBody) batchTableBody.innerHTML = '';
   const exportBatchBtn = document.getElementById('exportBatchCsvBtn');
   if (exportBatchBtn) exportBatchBtn.style.display = 'none';
+}
 
-  // 4. Clear all generic file inputs on page
+// Reset only the given or active section
+function resetActiveSection(targetId) {
+  const sectionId = targetId || state.activeSection || 'front-view-section';
+  if (sectionId === 'front-view-section') {
+    resetFrontViewSection();
+  } else if (sectionId === 'dual-view-section') {
+    resetDualViewSection();
+  } else if (sectionId === 'batch-section') {
+    resetBatchSection();
+  } else if (sectionId === 'training-graphs-section') {
+    if (typeof renderTrainingCurves === 'function') {
+      renderTrainingCurves(true);
+    }
+  } else if (sectionId === 'model-info-section' && state.modelInfo) {
+    if (typeof renderModelSpecs === 'function') {
+      renderModelSpecs(state.modelInfo);
+    }
+  } else if (sectionId === 'disease-guide-section' && state.modelInfo) {
+    if (typeof renderDiseaseGuide === 'function') {
+      renderDiseaseGuide(state.modelInfo.disease_reference);
+    }
+  }
+}
+
+function resetAllResults(notify = false) {
+  resetFrontViewSection();
+  resetDualViewSection();
+  resetBatchSection();
+
+  // Clear all generic file inputs on page
   document.querySelectorAll('input[type="file"]').forEach(inp => {
     try { inp.value = ''; } catch (_) {}
   });
 
   if (notify) {
-    showAlert('All analysis results and uploads have been reset.', 'info');
+    showAlert('All analysis results and uploads have been reset.', 'info', state.activeSection);
   }
 }
 
 // Make globally accessible
+window.resetFrontViewSection = resetFrontViewSection;
+window.resetDualViewSection = resetDualViewSection;
+window.resetBatchSection = resetBatchSection;
+window.resetActiveSection = resetActiveSection;
 window.resetAllResults = resetAllResults;
 
 // ==============================================================================
@@ -193,104 +231,144 @@ document.addEventListener('DOMContentLoaded', () => {
 // 3. NAVIGATION LOGIC
 // ==============================================================================
 
+const PAGE_TITLES = {
+  'front-view-section': {
+    title: 'Front-View Analysis (T1)',
+    caption: 'Evaluate adaxial leaf surfaces via Siamese feature extraction fallback'
+  },
+  'dual-view-section': {
+    title: 'Dual-View Analysis (T1 + D1)',
+    caption: 'Complete 2560D Siamese feature fusion of front and back leaf surfaces'
+  },
+  'batch-section': {
+    title: 'Folder-Based Batch Analysis',
+    caption: 'Automated leaf pair detection, mode strategies, and distribution analytics'
+  },
+  'training-graphs-section': {
+    title: 'Training & Evaluation Curves',
+    caption: '50-Epoch Dual-View EfficientNet-B0 + cGAN Accuracy & Cross-Entropy Loss Convergence'
+  },
+  'model-info-section': {
+    title: 'Model Architecture: EfficientNet-B0 + cGAN',
+    caption: 'Conditional GAN dataset synthesis and Dual-Stream Siamese EfficientNet-B0 backbone'
+  },
+  'disease-guide-section': {
+    title: 'Paddy Disease Field Guide',
+    caption: 'Botanical symptoms, pathogen etiology, and agronomic management'
+  }
+};
+
+function switchSection(targetId, smoothScroll = false) {
+  const sections = document.querySelectorAll('.content-section');
+  const navButtons = document.querySelectorAll('.nav-item-btn');
+  if (!targetId || !document.getElementById(targetId)) return;
+
+  // Clear existing alerts from old section when navigating away
+  if (state.activeSection && state.activeSection !== targetId) {
+    const oldContainer = document.getElementById(`alertContainer-${state.activeSection}`);
+    if (oldContainer) oldContainer.innerHTML = '';
+  }
+
+  navButtons.forEach(b => {
+    if (b.getAttribute('data-target') === targetId) {
+      b.classList.add('active');
+    } else {
+      b.classList.remove('active');
+    }
+  });
+
+  sections.forEach(sec => {
+    if (sec.id === targetId) {
+      sec.classList.add('active');
+    } else {
+      sec.classList.remove('active');
+    }
+  });
+
+  state.activeSection = targetId;
+
+  // Persist across browser refresh
+  try {
+    localStorage.setItem('paddyscan_active_section', targetId);
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState(null, null, `#${targetId}`);
+    }
+  } catch (_) {}
+
+  // Scroll to top
+  if (smoothScroll) {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // Update Topbar
+  const info = PAGE_TITLES[targetId] || { title: 'PaddyScan AI', caption: '' };
+  const titleEl = document.getElementById('pageTitle');
+  const captionEl = document.getElementById('pageCaption');
+  if (titleEl) titleEl.textContent = info.title;
+  if (captionEl) captionEl.textContent = info.caption;
+
+  // Trigger graph drawing when training curves section is selected
+  if (targetId === 'training-graphs-section') {
+    setTimeout(() => {
+      if (typeof renderTrainingCurves === 'function') {
+        renderTrainingCurves(true);
+      }
+    }, 60);
+  }
+}
+
 function initNavigation() {
   const navButtons = document.querySelectorAll('.nav-item-btn');
-  const sections = document.querySelectorAll('.content-section');
   const sidebar = document.getElementById('appSidebar');
   const openSidebarBtn = document.getElementById('openSidebarBtn');
   const closeSidebarBtn = document.getElementById('closeSidebarBtn');
-
-  const pageTitles = {
-    'front-view-section': {
-      title: 'Front-View Analysis (T1)',
-      caption: 'Evaluate adaxial leaf surfaces via Siamese feature extraction fallback'
-    },
-    'dual-view-section': {
-      title: 'Dual-View Analysis (T1 + D1)',
-      caption: 'Complete 2560D Siamese feature fusion of front and back leaf surfaces'
-    },
-    'batch-section': {
-      title: 'Folder-Based Batch Analysis',
-      caption: 'Automated leaf pair detection, mode strategies, and distribution analytics'
-    },
-    'training-graphs-section': {
-      title: 'Training & Evaluation Curves',
-      caption: '50-Epoch Dual-View EfficientNet-B0 + cGAN Accuracy & Cross-Entropy Loss Convergence'
-    },
-    'model-info-section': {
-      title: 'Model Architecture: EfficientNet-B0 + cGAN',
-      caption: 'Conditional GAN dataset synthesis and Dual-Stream Siamese EfficientNet-B0 backbone'
-    },
-    'disease-guide-section': {
-      title: 'Paddy Disease Field Guide',
-      caption: 'Botanical symptoms, pathogen etiology, and agronomic management'
-    }
-  };
+  const sidebarBackdrop = document.getElementById('sidebarBackdrop');
 
   navButtons.forEach(btn => {
     btn.addEventListener('click', () => {
       const targetId = btn.getAttribute('data-target');
       if (!targetId) return;
 
-      navButtons.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-
-      sections.forEach(sec => {
-        sec.classList.remove('active');
-        if (sec.id === targetId) {
-          sec.classList.add('active');
-        }
-      });
-
-      state.activeSection = targetId;
-
-      // Scroll smoothly to top of view
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-
-      // Update Topbar
-      const info = pageTitles[targetId] || { title: 'PaddyScan AI', caption: '' };
-      document.getElementById('pageTitle').textContent = info.title;
-      document.getElementById('pageCaption').textContent = info.caption;
-
-      // Trigger graph drawing when training curves section is selected
-      if (targetId === 'training-graphs-section') {
-        setTimeout(() => {
-          renderTrainingCurves(true);
-        }, 60);
-      }
+      switchSection(targetId, true);
 
       // Mobile close sidebar
-      if (window.innerWidth < 992) {
+      if (window.innerWidth < 992 && sidebar) {
         sidebar.classList.remove('show');
-        document.getElementById('sidebarBackdrop')?.classList.remove('show');
+        sidebarBackdrop?.classList.remove('show');
       }
     });
   });
 
-  const sidebarBackdrop = document.getElementById('sidebarBackdrop');
+  // Restore saved active section on page refresh
+  const savedSection = window.location.hash.replace('#', '') || (function() {
+    try { return localStorage.getItem('paddyscan_active_section'); } catch(_) { return null; }
+  })();
+  if (savedSection && document.getElementById(savedSection) && PAGE_TITLES[savedSection]) {
+    switchSection(savedSection, false);
+  }
 
   if (openSidebarBtn) {
     openSidebarBtn.addEventListener('click', () => {
-      sidebar.classList.add('show');
+      sidebar?.classList.add('show');
       sidebarBackdrop?.classList.add('show');
     });
   }
   if (closeSidebarBtn) {
     closeSidebarBtn.addEventListener('click', () => {
-      sidebar.classList.remove('show');
+      sidebar?.classList.remove('show');
       sidebarBackdrop?.classList.remove('show');
     });
   }
   if (sidebarBackdrop) {
     sidebarBackdrop.addEventListener('click', () => {
-      sidebar.classList.remove('show');
+      sidebar?.classList.remove('show');
       sidebarBackdrop.classList.remove('show');
     });
   }
 
-  // Refresh connection, health, and reset results button
+  // Refresh current active page connection, health, and reset only the active page results
   document.getElementById('checkApiBtn')?.addEventListener('click', () => {
-    resetAllResults();
+    resetActiveSection(state.activeSection);
     initSystemHealth(true);
   });
 }
@@ -360,7 +438,8 @@ async function initSystemHealth(isManual = false) {
       if (isManual) {
         if (refreshIcon) refreshIcon.className = 'bi bi-check-circle-fill text-success me-1';
         if (refreshText) refreshText.textContent = 'Refreshed!';
-        showAlert(`Results reset & Backend Online: Connected to ${data.model_name || 'EfficientNet-B0'} (${data.device_name || data.device || 'CPU'}).`, 'success');
+        const activeTitle = PAGE_TITLES[state.activeSection]?.title || 'Page';
+        showAlert(`${activeTitle} refreshed & Backend Online: Connected to ${data.model_name || 'EfficientNet-B0'} (${data.device_name || data.device || 'CPU'}).`, 'success', state.activeSection);
         
         setTimeout(() => {
           if (refreshIcon) refreshIcon.className = 'bi bi-arrow-repeat me-1';
@@ -379,7 +458,7 @@ async function initSystemHealth(isManual = false) {
       if (isManual) {
         if (refreshIcon) refreshIcon.className = 'bi bi-exclamation-triangle me-1';
         if (refreshText) refreshText.textContent = 'Warning';
-        showAlert(`Model checkpoint issue: ${data.error}`, 'warning');
+        showAlert(`Model checkpoint issue: ${data.error}`, 'warning', state.activeSection);
 
         setTimeout(() => {
           if (refreshIcon) refreshIcon.className = 'bi bi-arrow-repeat me-1';
@@ -401,7 +480,7 @@ async function initSystemHealth(isManual = false) {
     if (isManual) {
       if (refreshIcon) refreshIcon.className = 'bi bi-x-circle me-1 text-danger';
       if (refreshText) refreshText.textContent = 'Offline';
-      showAlert('Cannot connect to Flask backend. Make sure backend/app.py is running on port 5000.', 'danger');
+      showAlert('Cannot connect to Flask backend. Make sure backend/app.py is running on port 5000.', 'danger', state.activeSection);
 
       setTimeout(() => {
         if (refreshIcon) refreshIcon.className = 'bi bi-arrow-repeat me-1';
@@ -1161,14 +1240,14 @@ function initBatchSection() {
 
   modeSelect.addEventListener('change', () => {
     const hint = document.getElementById('batchModeHint');
-    if (!hint) return;
-    if (modeSelect.value === 'auto') {
-      hint.textContent = 'Auto Mode: Automatically pairs T1 & B1 images for Dual-View fusion and seamlessly diagnoses all single/unpaired leaves.';
-    } else if (modeSelect.value === 'dual') {
-      hint.textContent = 'Strict Dual-View: Requires both T1 and B1 for every leaf; single views are marked unmatched.';
-    } else {
-      hint.textContent = 'Single / Top-View: Evaluates all images individually via Single-View Siamese architecture.';
+    if (hint) {
+      if (modeSelect.value === 'auto' || modeSelect.value === 'dual') {
+        hint.textContent = 'Dual-View Mode: Automatically pairs T1 & B1 images for complete Dual-View Siamese fusion.';
+      } else {
+        hint.textContent = 'Top-View Only: Evaluates strictly top/front leaf views (T1, T2, T3...); bottom views (B1, B2, B3...) are excluded.';
+      }
     }
+    updateBatchStagingDisplay();
   });
 
   // Load Demo Batch Samples (if present)
@@ -1244,33 +1323,61 @@ function initBatchSection() {
     updateBatchStagingDisplay();
   }
 
+  // View detection helper utilities
+  function isBottomViewName(filename) {
+    if (!filename) return false;
+    const base = filename.replace(/\\/g, '/').split('/').pop().replace(/\.[^/.]+$/, '').toLowerCase();
+    return /([_-][bd]\d*$|_[bd]$|back|bottom|abaxial|^[bd]\d*[_-]|^[bd]\d+$)/.test(base);
+  }
+
+  function isTopViewName(filename) {
+    if (!filename) return false;
+    const base = filename.replace(/\\/g, '/').split('/').pop().replace(/\.[^/.]+$/, '').toLowerCase();
+    if (isBottomViewName(base)) return false;
+    return /([_-]t\d*$|_t$|front|top|adaxial|^t\d*[_-]|^t\d+$)/.test(base);
+  }
+
   function updateBatchStagingDisplay() {
     const totalCount = state.batchFiles.length;
-    document.getElementById('batchStagedTotal').textContent = `${totalCount} files`;
-
-    // Count front and back
     let frontCount = 0;
     let backCount = 0;
     state.batchFiles.forEach(f => {
       const name = f.name.toLowerCase();
-      if (/([_-]t\d*$|_t$|front|top|adaxial|^t\d*[_-])/.test(name)) frontCount++;
-      else if (/([_-][bd]\d*$|_[bd]$|back|bottom|abaxial|^[bd]\d*[_-])/.test(name)) backCount++;
+      if (isTopViewName(name)) frontCount++;
+      else if (isBottomViewName(name)) backCount++;
     });
 
+    const isTopOnlyMode = modeSelect && modeSelect.value === 'front';
+    const stagedTotal = document.getElementById('batchStagedTotal');
     const stagedDetails = document.getElementById('batchStagedDetails');
-    if (stagedDetails) {
-      stagedDetails.textContent = `${frontCount} front (T1) • ${backCount} back (B1)`;
+
+    if (isTopOnlyMode) {
+      if (stagedTotal) stagedTotal.textContent = `${frontCount} top view files`;
+      if (stagedDetails) {
+        stagedDetails.textContent = `${frontCount} top (T1, T2...) selected • ${backCount} bottom (B1...) excluded`;
+      }
+      runBtn.disabled = frontCount === 0;
+    } else {
+      if (stagedTotal) stagedTotal.textContent = `${totalCount} files`;
+      if (stagedDetails) {
+        stagedDetails.textContent = `${frontCount} front (T1) • ${backCount} back (B1)`;
+      }
+      runBtn.disabled = totalCount === 0;
     }
-    runBtn.disabled = totalCount === 0;
   }
 
-  // Client-side specimen ID extraction helper
+  // Helper to strip folder prefixes like 'Leaf Blast/Leaf-1' -> 'Leaf-1' or 'Leaf Blast/000002_t1.JPG' -> '000002_t1.JPG'
+  function stripFolderPrefix(filePath) {
+    if (!filePath) return '';
+    return filePath.replace(/\\/g, '/').split('/').pop();
+  }
+  window.stripFolderPrefix = stripFolderPrefix;
+
+  // Client-side specimen ID extraction helper (pure specimen ID e.g. Leaf-1)
   function extractClientSampleId(filename) {
     if (!filename) return 'Sample';
     const cleanPath = filename.replace(/\\/g, '/');
-    const parts = cleanPath.split('/');
-    const baseName = parts.pop();
-    const parent = parts.length > 0 ? parts[parts.length - 1] : '';
+    const baseName = cleanPath.split('/').pop();
     const stem = baseName.replace(/\.[^/.]+$/, "").toLowerCase();
 
     let leafId = null;
@@ -1288,23 +1395,36 @@ function initBatchSection() {
         }
       }
     }
-    return (parent && parent !== '.') ? `${parent}/${leafId}` : leafId;
+    return leafId;
   }
 
-  // Client-side pairing grouping: keeps T1 and D1 views together, or treats each as unit in Top-Only mode
+  // Client-side pairing grouping: keeps T1 and D1 views together, or takes strictly top views in Top-Only mode
   function groupBatchFilesForProcessing(files, mode) {
     if (mode === 'front') {
-      return files.map(f => [f]);
+      // Exclude all bottom/back views (b1, b2, b3, d1, back, bottom)
+      const hasExplicitTop = files.some(f => isTopViewName(f.name));
+      const topFiles = files.filter(f => {
+        if (isBottomViewName(f.name)) return false;
+        if (hasExplicitTop) {
+          return isTopViewName(f.name);
+        }
+        return true;
+      });
+      return topFiles.map(f => [f]);
     }
 
     const groups = new Map();
     files.forEach(file => {
-      const rel = file.webkitRelativePath || file.name;
+      const rel = (file.webkitRelativePath || file.name).replace(/\\/g, '/');
+      const parts = rel.split('/');
+      parts.pop();
+      const parentDir = parts.join('/');
       const sId = extractClientSampleId(rel) || file.name;
-      if (!groups.has(sId)) {
-        groups.set(sId, []);
+      const groupKey = parentDir ? `${parentDir}:::${sId}` : sId;
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, []);
       }
-      groups.get(sId).push(file);
+      groups.get(groupKey).push(file);
     });
     return Array.from(groups.values());
   }
@@ -1326,18 +1446,18 @@ function initBatchSection() {
     progressWrapper.style.display = 'block';
     progressBar.style.width = '5%';
     progressPct.textContent = '5%';
-    progressText.textContent = `Preparing ${state.batchFiles.length} files for analysis...`;
 
     const mode = modeSelect.value;
-    // Group files by specimen ID so pairs are never severed, or treat each file as unit for top-only
+    // Group files by specimen ID so pairs are never severed, or take strictly top views for top-only
     const sampleUnits = groupBatchFilesForProcessing(state.batchFiles, mode);
     const totalSamples = sampleUnits.length;
+    progressText.textContent = `Preparing ${totalSamples} ${mode === 'front' ? 'top-view ' : ''}samples for analysis...`;
 
     // Initialize or reset results state
     state.batchResults = {
       status: 'success',
       summary: {
-        total_files: state.batchFiles.length,
+        total_files: mode === 'front' ? totalSamples : state.batchFiles.length,
         total_samples: 0,
         processed_count: 0,
         unmatched_count: 0,
@@ -1635,9 +1755,9 @@ function initBatchSection() {
 
       // Search matching
       if (searchTerm) {
-        const idMatch = (row.sample_id || '').toLowerCase().includes(searchTerm);
-        const frontMatch = (row.front_filename || '').toLowerCase().includes(searchTerm);
-        const backMatch = (row.back_filename || '').toLowerCase().includes(searchTerm);
+        const idMatch = (row.sample_id || '').toLowerCase().includes(searchTerm) || stripFolderPrefix(row.sample_id).toLowerCase().includes(searchTerm);
+        const frontMatch = (row.front_filename || '').toLowerCase().includes(searchTerm) || stripFolderPrefix(row.front_filename).toLowerCase().includes(searchTerm);
+        const backMatch = (row.back_filename || '').toLowerCase().includes(searchTerm) || stripFolderPrefix(row.back_filename).toLowerCase().includes(searchTerm);
         const classMatch = (row.predicted_class || '').toLowerCase().includes(searchTerm);
         if (!idMatch && !frontMatch && !backMatch && !classMatch) return false;
       }
@@ -1683,21 +1803,25 @@ function initBatchSection() {
 
       const confText = isSuccess ? `<strong>${row.confidence}%</strong>` : '&mdash;';
 
-      // Render Table Row: Clean display with Sample ID, Files, Mode, Predicted Disease, Confidence, Status, Actions (Overall Accuracy/Precision/Recall/F1-Score displayed prominently at batch top)
+      const cleanSampleId = stripFolderPrefix(row.sample_id);
+      const cleanFrontFn = stripFolderPrefix(row.front_filename);
+      const cleanBackFn = stripFolderPrefix(row.back_filename);
+
+      // Render Table Row: Clean display with pure Sample ID and base Filenames without directory prefixes
       tr.innerHTML = `
-        <td class="fw-bold text-dark">${row.sample_id}</td>
+        <td class="fw-bold text-dark">${cleanSampleId}</td>
         <td>
           ${isTopOnly ? `
-            <div class="small fw-semibold text-truncate text-dark" style="max-width: 320px;" title="${row.front_filename}">
-              <span class="badge bg-success-subtle text-success border border-success-subtle me-1">T1</span>${row.front_filename}
+            <div class="small fw-semibold text-truncate text-dark" style="max-width: 320px;" title="${cleanFrontFn}">
+              <span class="badge bg-success-subtle text-success border border-success-subtle me-1">T1</span>${cleanFrontFn}
             </div>
             <div class="text-xs text-muted">Top-View Leaf Image</div>
           ` : `
-            <div class="small text-truncate text-dark mb-1" style="max-width: 320px;" title="${row.front_filename}">
-              <span class="badge bg-success-subtle text-success border border-success-subtle me-1">T1</span>${row.front_filename}
+            <div class="small text-truncate text-dark mb-1" style="max-width: 320px;" title="${cleanFrontFn}">
+              <span class="badge bg-success-subtle text-success border border-success-subtle me-1">T1</span>${cleanFrontFn}
             </div>
-            <div class="small text-muted text-truncate" style="max-width: 320px;" title="${row.back_filename}">
-              <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle me-1">D1</span>${row.back_filename}
+            <div class="small text-muted text-truncate" style="max-width: 320px;" title="${cleanBackFn}">
+              <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle me-1">D1</span>${cleanBackFn}
             </div>
           `}
         </td>
@@ -1739,9 +1863,9 @@ function initBatchSection() {
     const headers = ['Sample ID', 'Front Filename (T1)', 'Back Filename (D1)', 'Analysis Mode', 'Predicted Disease', 'Confidence (%)', 'Status', 'Details/Reason'];
     const rows = state.batchResults.results.map(r => {
       return [
-        `"${r.sample_id || ''}"`,
-        `"${r.front_filename || ''}"`,
-        `"${r.back_filename || ''}"`,
+        `"${stripFolderPrefix(r.sample_id)}"`,
+        `"${stripFolderPrefix(r.front_filename)}"`,
+        `"${stripFolderPrefix(r.back_filename)}"`,
         `"${r.mode || ''}"`,
         `"${r.predicted_class || ''}"`,
         r.confidence !== undefined ? r.confidence : '',
@@ -1825,6 +1949,10 @@ window.showBatchDetailModal = function (row) {
                     (row.mode && (row.mode.toLowerCase().includes('top') || row.mode.toLowerCase().includes('front')));
 
   // Find particular images for this sample
+  const cleanSampleId = (typeof stripFolderPrefix === 'function') ? stripFolderPrefix(row.sample_id) : (row.sample_id || '').split('/').pop();
+  const cleanFrontFn = (typeof stripFolderPrefix === 'function') ? stripFolderPrefix(row.front_filename) : (row.front_filename || '').split('/').pop();
+  const cleanBackFn = (typeof stripFolderPrefix === 'function') ? stripFolderPrefix(row.back_filename) : (row.back_filename || '').split('/').pop();
+
   const frontImgUrl = getBatchImageUrl(row.front_filename);
   const backImgUrl = isTopOnly ? null : getBatchImageUrl(row.back_filename);
 
@@ -1845,12 +1973,12 @@ window.showBatchDetailModal = function (row) {
           ` : `
             <div class="text-muted small">
               <i class="bi bi-file-earmark-image fs-1 d-block mb-1 text-success"></i>
-              ${row.front_filename || row.sample_id}
+              ${cleanFrontFn || cleanSampleId}
             </div>
           `}
         </div>
-        <div class="text-xs text-muted text-truncate mt-2 text-start px-1" title="${row.front_filename}">
-          <i class="bi bi-file-earmark-image me-1 text-success"></i><strong>Top Image File:</strong> ${row.front_filename}
+        <div class="text-xs text-muted text-truncate mt-2 text-start px-1" title="${cleanFrontFn}">
+          <i class="bi bi-file-earmark-image me-1 text-success"></i><strong>Top Image File:</strong> ${cleanFrontFn}
         </div>
       </div>
     `;
@@ -1866,8 +1994,8 @@ window.showBatchDetailModal = function (row) {
               <div style="height: 200px; display: flex; align-items: center; justify-content: center; background: #fff; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0;">
                 <img src="${frontImgUrl}" alt="Front Leaf (T1)" class="img-fluid" style="max-height: 100%; max-width: 100%; object-fit: contain;">
               </div>
-              <div class="text-xs text-muted text-truncate mt-1 text-start" title="${row.front_filename}">
-                ${row.front_filename}
+              <div class="text-xs text-muted text-truncate mt-1 text-start" title="${cleanFrontFn}">
+                ${cleanFrontFn}
               </div>
             </div>
           </div>
@@ -1882,8 +2010,8 @@ window.showBatchDetailModal = function (row) {
               <div style="height: 200px; display: flex; align-items: center; justify-content: center; background: #fff; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0;">
                 <img src="${backImgUrl}" alt="Back Leaf (D1)" class="img-fluid" style="max-height: 100%; max-width: 100%; object-fit: contain;">
               </div>
-              <div class="text-xs text-muted text-truncate mt-1 text-start" title="${row.back_filename}">
-                ${row.back_filename}
+              <div class="text-xs text-muted text-truncate mt-1 text-start" title="${cleanBackFn}">
+                ${cleanBackFn}
               </div>
             </div>
           </div>
@@ -1894,7 +2022,7 @@ window.showBatchDetailModal = function (row) {
     imageShowcaseHtml = `
       <div class="alert alert-light border py-3 text-center mb-3 text-muted small">
         <i class="bi bi-file-earmark-image fs-3 d-block mb-1 text-secondary"></i>
-        Sample file: <strong>${row.front_filename || row.sample_id}</strong>
+        Sample file: <strong>${cleanFrontFn || cleanSampleId}</strong>
       </div>
     `;
   }
@@ -1904,7 +2032,7 @@ window.showBatchDetailModal = function (row) {
     <div class="d-flex justify-content-between align-items-center mb-3">
       <div>
         <span class="badge px-3 py-1 text-uppercase fw-bold" style="background-color: ${color}; color: #fff;">${row.predicted_class}</span>
-        <h4 class="fw-bold mt-2 mb-0">${row.sample_id}</h4>
+        <h4 class="fw-bold mt-2 mb-0">${cleanSampleId}</h4>
       </div>
       <div class="text-end">
         <h3 class="fw-bold mb-0" style="color: ${color}">${row.confidence}%</h3>
@@ -1917,8 +2045,8 @@ window.showBatchDetailModal = function (row) {
 
     <!-- Sample & Processing Metadata -->
     <div class="card border-0 bg-light p-3 mb-3 rounded-3">
-      <div class="small mb-1"><strong>${isTopOnly ? 'Top Leaf File (T1)' : 'Front File (T1)'}:</strong> ${row.front_filename || 'N/A'}</div>
-      ${!isTopOnly && row.back_filename ? `<div class="small mb-1"><strong>Back File (D1):</strong> ${row.back_filename}</div>` : ''}
+      <div class="small mb-1"><strong>${isTopOnly ? 'Top Leaf File (T1)' : 'Front File (T1)'}:</strong> ${cleanFrontFn || 'N/A'}</div>
+      ${!isTopOnly && cleanBackFn ? `<div class="small mb-1"><strong>Back File (D1):</strong> ${cleanBackFn}</div>` : ''}
       <div class="small"><strong>Mode:</strong> ${row.mode} • <strong>Latency:</strong> ${row.inference_time_ms} ms</div>
     </div>
 
@@ -2455,11 +2583,34 @@ function setupDropEvents(element, singleFileCallback, multiFileCallback) {
   });
 }
 
-function showAlert(message, type = 'info') {
-  const container = document.getElementById('globalAlertContainer');
+function showAlert(message, type = 'info', targetSectionId = null) {
+  const activeId = targetSectionId || state.activeSection || 'front-view-section';
+  let container = document.getElementById(`alertContainer-${activeId}`);
+
+  // Fallback to searching within section or creating container inside section
+  if (!container) {
+    const sectionEl = document.getElementById(activeId);
+    if (sectionEl) {
+      container = sectionEl.querySelector('.section-alert-container');
+      if (!container) {
+        container = document.createElement('div');
+        container.className = 'section-alert-container mb-3';
+        container.id = `alertContainer-${activeId}`;
+        const fluid = sectionEl.querySelector('.container-fluid') || sectionEl;
+        fluid.insertBefore(container, fluid.firstChild);
+      }
+    }
+  }
+
+  // Fallback to globalAlertContainer if no section container is available
+  if (!container) {
+    container = document.getElementById('globalAlertContainer');
+    if (container) container.classList.remove('d-none');
+  }
+
   if (!container) return;
 
-  // Keep at most 2 active alerts to prevent screen clutter
+  // Keep at most 2 active alerts in the section to prevent screen clutter
   while (container.children.length >= 2) {
     container.removeChild(container.firstChild);
   }

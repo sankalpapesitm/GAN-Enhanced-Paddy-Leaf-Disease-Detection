@@ -588,41 +588,37 @@ def run_inference(
 
 def extract_pair_id(filename: str) -> Optional[str]:
     """
-    Extracts leaf specimen / pair identifier from filename according to dataset conventions:
+    Extracts clean leaf specimen / pair identifier from filename without folder prefix:
     Examples:
       - 000206_t698.JPG -> Leaf-698
       - 000205_b698.JPG -> Leaf-698
-      - Hispa/000041_b91.JPG -> Hispa/Leaf-91
+      - Leaf Blast/000002_t1.JPG -> Leaf-1
+      - Hispa/000041_b91.JPG -> Leaf-91
       - leaf_12_T1.jpg -> Leaf-12
       - leaf_12_D1.jpg -> Leaf-12
       - P14_front.png -> P14
     """
     p = Path(filename.replace("\\", "/"))
-    parent = p.parent.name if len(p.parts) > 1 else ""
     stem = p.stem.lower()
 
     # Pattern 1: suffix _t123 or _b123 or -d123
     m = re.search(r"[_-](?:t|b|d)(\d+)$", stem)
     if m:
-        id_str = f"Leaf-{m.group(1)}"
-        return f"{parent}/{id_str}" if parent and parent not in (".", "") else id_str
+        return f"Leaf-{m.group(1)}"
 
     # Pattern 2: trailing t123 or b123
     m = re.search(r"(?:t|b|d)(\d+)$", stem)
     if m:
-        id_str = f"Leaf-{m.group(1)}"
-        return f"{parent}/{id_str}" if parent and parent not in (".", "") else id_str
+        return f"Leaf-{m.group(1)}"
 
     # Pattern 3: sample prefix before _t/_b (e.g. leaf01_t1)
     m = re.search(r"^(.*?)[_-](?:t1?|b1?|d1?|front|back|top|bottom)", stem)
     if m and m.group(1):
-        id_str = m.group(1).capitalize()
-        return f"{parent}/{id_str}" if parent and parent not in (".", "") else id_str
+        return m.group(1).capitalize()
 
     # Fallback to pure stem without view indicator
     cleaned = re.sub(r"[_-]?(t1?|b1?|d1?|top|bottom|front|back|adaxial|abaxial)", "", stem)
-    res = cleaned if cleaned else stem
-    return f"{parent}/{res}" if parent and parent not in (".", "") else res
+    return cleaned if cleaned else stem
 
 
 def detect_leaf_view(filename: str) -> str:
@@ -1019,27 +1015,32 @@ def predict_batch():
 
     # Step 3 & 4: Process samples based on analysis mode
     if mode == "front":
-        # Mode: Single-View (T1 / Adaxial) Evaluation for all submitted images
+        # Mode: Single / Top-View (T1, T2, T3... Adaxial) Evaluation only
         for fn in sorted(file_bytes_map.keys()):
+            v = detect_leaf_view(fn)
+            # Strictly take top view only (like t1, t2, t3); skip bottom views (b1, b2, b3...)
+            if v == "back":
+                continue
+
             total_samples += 1
             sample_id = extract_pair_id(fn) or Path(fn).stem
+            clean_fn = Path(fn).name
             if fn in error_map:
                 error_count += 1
                 batch_results.append({
                     "sample_id": sample_id,
                     "status": "error",
-                    "mode": "Single-View (T1)",
-                    "front_filename": fn,
+                    "mode": "Top-Only (T1)",
+                    "front_filename": clean_fn,
                     "back_filename": None,
                     "error": error_map[fn]
                 })
             else:
                 t = tensor_map[fn]
-                v = detect_leaf_view(fn)
                 inference_queue.append({
                     "sample_id": sample_id,
-                    "mode": "Single-View (T1)" if v != "back" else "Single-View (B1)",
-                    "front_filename": fn,
+                    "mode": "Top-Only (T1)",
+                    "front_filename": clean_fn,
                     "back_filename": None,
                     "matched": True,
                     "t_top": t,
@@ -1047,23 +1048,29 @@ def predict_batch():
                     "im_top": image_map[fn],
                     "im_bot": None,
                     "is_dual": False,
-                    "view_type": v if v != "unknown" else "front"
+                    "view_type": "front"
                 })
     else:
         # Step 3: Map filenames into logical sample groups for dual/auto pairing
         sample_groups = defaultdict(lambda: {"front": [], "back": [], "unknown": []})
         for filename in sorted(file_bytes_map.keys()):
             view = detect_leaf_view(filename)
-            sample_id = extract_pair_id(filename) or filename
+            base_id = extract_pair_id(filename) or Path(filename).stem
+            # Isolate folders so identical filenames across separate folders don't cross-match during pairing
+            folder_part = str(Path(filename.replace("\\", "/")).parent).replace("\\", "/")
+            group_key = f"{folder_part}:::{base_id}" if folder_part and folder_part not in (".", "") else base_id
             if view == "front":
-                sample_groups[sample_id]["front"].append(filename)
+                sample_groups[group_key]["front"].append(filename)
             elif view == "back":
-                sample_groups[sample_id]["back"].append(filename)
+                sample_groups[group_key]["back"].append(filename)
             else:
-                sample_groups[sample_id]["unknown"].append(filename)
+                sample_groups[group_key]["unknown"].append(filename)
 
         # Step 4: Classify sample availability and prepare inference items
-        for sample_id, views in sorted(sample_groups.items(), key=lambda x: str(x[0])):
+        for group_key, views in sorted(sample_groups.items(), key=lambda x: str(x[0])):
+            # Clean pure sample ID without any folder prefix e.g. 'Leaf-1'
+            sample_id = group_key.split(":::")[-1].split("/")[-1].split("\\")[-1]
+
             front_list = views["front"]
             back_list = views["back"]
             unknown_list = views["unknown"]
@@ -1074,6 +1081,8 @@ def predict_batch():
                 total_samples += 1
                 front_fn = front_list[i]
                 back_fn = back_list[i]
+                clean_front_fn = Path(front_fn).name if front_fn else None
+                clean_back_fn = Path(back_fn).name if back_fn else None
 
                 if front_fn in error_map or back_fn in error_map:
                     error_count += 1
@@ -1082,8 +1091,8 @@ def predict_batch():
                         "sample_id": sample_id,
                         "status": "error",
                         "mode": "Dual-View (T1 + D1)",
-                        "front_filename": front_fn,
-                        "back_filename": back_fn,
+                        "front_filename": clean_front_fn,
+                        "back_filename": clean_back_fn,
                         "error": err_msg
                     })
                 else:
@@ -1105,8 +1114,8 @@ def predict_batch():
                     inference_queue.append({
                         "sample_id": sample_id,
                         "mode": "Dual-View (T1 + D1)",
-                        "front_filename": front_fn,
-                        "back_filename": back_fn,
+                        "front_filename": clean_front_fn,
+                        "back_filename": clean_back_fn,
                         "matched": True,
                         "t_top": t_top,
                         "t_bot": t_bot,
@@ -1120,6 +1129,7 @@ def predict_batch():
             remaining_fronts = front_list[num_pairs:]
             for front_fn in remaining_fronts:
                 total_samples += 1
+                clean_front_fn = Path(front_fn).name if front_fn else None
                 if mode == "auto":
                     if front_fn in error_map:
                         error_count += 1
@@ -1127,7 +1137,7 @@ def predict_batch():
                             "sample_id": sample_id,
                             "status": "error",
                             "mode": "Top-Only (T1)",
-                            "front_filename": front_fn,
+                            "front_filename": clean_front_fn,
                             "back_filename": None,
                             "error": error_map[front_fn]
                         })
@@ -1136,7 +1146,7 @@ def predict_batch():
                         inference_queue.append({
                             "sample_id": sample_id,
                             "mode": "Top-Only (T1)",
-                            "front_filename": front_fn,
+                            "front_filename": clean_front_fn,
                             "back_filename": None,
                             "matched": True,
                             "t_top": t_f,
@@ -1152,7 +1162,7 @@ def predict_batch():
                         "sample_id": sample_id,
                         "status": "unmatched",
                         "mode": "Dual-View Required",
-                        "front_filename": front_fn,
+                        "front_filename": clean_front_fn,
                         "back_filename": None,
                         "matched": False,
                         "reason": "Dual-View mode requires both T1 and D1 views. Missing back image."
@@ -1162,6 +1172,7 @@ def predict_batch():
             remaining_backs = back_list[num_pairs:]
             for back_fn in remaining_backs:
                 total_samples += 1
+                clean_back_fn = Path(back_fn).name if back_fn else None
                 if mode == "auto":
                     if back_fn in error_map:
                         error_count += 1
@@ -1170,7 +1181,7 @@ def predict_batch():
                             "status": "error",
                             "mode": "Single-View (B1 Fallback)",
                             "front_filename": None,
-                            "back_filename": back_fn,
+                            "back_filename": clean_back_fn,
                             "error": error_map[back_fn]
                         })
                     else:
@@ -1179,7 +1190,7 @@ def predict_batch():
                             "sample_id": sample_id,
                             "mode": "Single-View (B1 Fallback)",
                             "front_filename": None,
-                            "back_filename": back_fn,
+                            "back_filename": clean_back_fn,
                             "matched": True,
                             "t_top": t_b,
                             "t_bot": t_b,
@@ -1195,7 +1206,7 @@ def predict_batch():
                         "status": "unmatched",
                         "mode": "Dual-View Required",
                         "front_filename": "Missing Front View (T1)",
-                        "back_filename": back_fn,
+                        "back_filename": clean_back_fn,
                         "matched": False,
                         "reason": "Dual-View mode requires both T1 and D1 views. Missing front image."
                     })
@@ -1203,6 +1214,7 @@ def predict_batch():
             # Unknown naming convention images
             for unk_fn in unknown_list:
                 total_samples += 1
+                clean_unk_fn = Path(unk_fn).name if unk_fn else None
                 if mode == "auto":
                     if unk_fn in error_map:
                         error_count += 1
@@ -1210,7 +1222,7 @@ def predict_batch():
                             "sample_id": sample_id,
                             "status": "error",
                             "mode": "Single-View (Siamese)",
-                            "front_filename": unk_fn,
+                            "front_filename": clean_unk_fn,
                             "back_filename": None,
                             "error": error_map[unk_fn]
                         })
@@ -1220,7 +1232,7 @@ def predict_batch():
                         inference_queue.append({
                             "sample_id": sample_id,
                             "mode": "Single-View (Siamese)",
-                            "front_filename": unk_fn,
+                            "front_filename": clean_unk_fn,
                             "back_filename": None,
                             "matched": True,
                             "t_top": t_unk,
@@ -1236,7 +1248,7 @@ def predict_batch():
                         "sample_id": sample_id,
                         "status": "unmatched",
                         "mode": "Unmatched",
-                        "front_filename": unk_fn,
+                        "front_filename": clean_unk_fn,
                         "back_filename": None,
                         "matched": False,
                         "reason": "Filename does not specify T1 or D1 view tag."

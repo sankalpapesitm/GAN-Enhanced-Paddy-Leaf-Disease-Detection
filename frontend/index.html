@@ -131,14 +131,16 @@
                 </div>
             </header>
 
-            <!-- ALERT BANNER CONTAINER -->
-            <div class="container-fluid px-4 pt-3" id="globalAlertContainer"></div>
+            <!-- ALERT BANNER CONTAINER (FALLBACK) -->
+            <div class="container-fluid px-4 pt-1 d-none" id="globalAlertContainer"></div>
 
             <!-- =================================================================== -->
             <!-- SECTION 1: FRONT-VIEW ANALYSIS (T1) -->
             <!-- =================================================================== -->
             <section class="content-section active" id="front-view-section">
                 <div class="container-fluid px-4 py-3">
+                    <!-- SECTION-SPECIFIC ALERT BANNER -->
+                    <div class="section-alert-container" id="alertContainer-front-view-section"></div>
 
                     <div class="row g-4 align-items-stretch">
                         <!-- Upload & Controls Card -->
@@ -395,6 +397,8 @@
             <!-- =================================================================== -->
             <section class="content-section" id="dual-view-section">
                 <div class="container-fluid px-4 py-3">
+                    <!-- SECTION-SPECIFIC ALERT BANNER -->
+                    <div class="section-alert-container" id="alertContainer-dual-view-section"></div>
 
                     <div class="row g-4 align-items-stretch">
                         <!-- Dual Upload Inputs Column -->
@@ -711,6 +715,8 @@
             <!-- =================================================================== -->
             <section class="content-section" id="batch-section">
                 <div class="container-fluid px-4 py-3">
+                    <!-- SECTION-SPECIFIC ALERT BANNER -->
+                    <div class="section-alert-container" id="alertContainer-batch-section"></div>
 
                     <div class="row g-4">
                         <!-- Batch Configuration Column -->
@@ -770,14 +776,13 @@
                                             <label class="form-label small fw-bold text-dark">Analysis Mode
                                                 Strategy:</label>
                                             <select class="form-select form-select-sm mb-3" id="batchModeSelect">
-                                                <option value="auto" selected>Auto-Detect &amp; Classify All (Dual Pairs
-                                                    + Single Fallback)</option>
-                                                <option value="dual">Strict Dual-View Only (Requires T1 + B1)</option>
-                                                <option value="front">Single / Top-View Evaluation (All Leaves)</option>
+                                                <option value="auto" selected>Strict Dual-View Only (Requires T1 + B1)
+                                                </option>
+                                                <option value="front">Single / Top-View Only </option>
                                             </select>
                                             <div class="small text-muted" id="batchModeHint">
-                                                Auto Mode: Automatically pairs T1 &amp; B1 images for Dual-View fusion
-                                                and seamlessly diagnoses all single/unpaired leaves.
+                                                Dual-View Mode: Automatically pairs T1 &amp; B1 images for complete
+                                                Dual-View Siamese fusion.
                                             </div>
                                         </div>
 
@@ -1026,6 +1031,8 @@
             <!-- =================================================================== -->
             <section class="content-section" id="training-graphs-section">
                 <div class="container-fluid px-4 py-3">
+                    <!-- SECTION-SPECIFIC ALERT BANNER -->
+                    <div class="section-alert-container" id="alertContainer-training-graphs-section"></div>
 
                     <!-- Section Banner & Action Controls -->
                     <div class="card card-premium p-4 mb-4">
@@ -1413,6 +1420,8 @@
             <!-- =================================================================== -->
             <section class="content-section" id="model-info-section">
                 <div class="container-fluid px-4 py-3">
+                    <!-- SECTION-SPECIFIC ALERT BANNER -->
+                    <div class="section-alert-container" id="alertContainer-model-info-section"></div>
                     <div class="row g-4">
                         <div class="col-lg-8">
                             <div class="card card-premium p-4">
@@ -1633,6 +1642,8 @@
             <!-- =================================================================== -->
             <section class="content-section" id="disease-guide-section">
                 <div class="container-fluid px-4 py-3">
+                    <!-- SECTION-SPECIFIC ALERT BANNER -->
+                    <div class="section-alert-container" id="alertContainer-disease-guide-section"></div>
                     <div class="row g-4" id="diseaseGuideCards"></div>
                 </div>
             </section>
